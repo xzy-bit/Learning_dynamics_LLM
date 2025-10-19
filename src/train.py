@@ -107,7 +107,7 @@ def main(config: DictConfig):
     )
     disable_dropout(policy)
 
-    if config.loss.name in {'dpo', 'ipo'}:
+    if config.loss.name in {'dpo', 'ipo','sparse-dpo'}:
         print('building reference model')
         reference_model_dtype = getattr(torch, config.model.reference_dtype)
         reference_model = transformers.AutoModelForCausalLM.from_pretrained(
@@ -127,7 +127,7 @@ def main(config: DictConfig):
         #     f'metrics {json.dumps(metrics, indent=2)}'
         # )
         policy.load_state_dict(state_dict['state'])
-        if config.loss.name in {'dpo', 'ipo'}:
+        if config.loss.name in {'dpo', 'ipo','sparse-dpo'}:
             reference_model.load_state_dict(state_dict['state'])
         print('loaded pre-trained weights')
     
