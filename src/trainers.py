@@ -603,17 +603,23 @@ class BasicTrainer(object):
         last_log = None
         logp_npy_all = []
         argmax_npy_all = []
+        saving_epoch = 2
         # reload_ref_required = True
         for batch in self.train_iterator:
             #### BEGIN EVALUATION ####
             if self.example_counter % self.config.eval_every == 0 and (self.example_counter > 0 or self.config.do_first_eval):
                 rank0_print(f'Running evaluation after {self.example_counter} ' + 'train examples')
-                logp_npy, argmax_npy = self.evaluation(prob_set='prob_train')  # [B,1] and [B, M]
-                if self.rank==0:
-                    logp_npy_all.append(logp_npy)
-                    argmax_npy_all.append(argmax_npy)
-                #self.evaluation(prob_set='prob_test')
+                _, _ = self.evaluation(prob_set='prob_train')  # [B,1] and [B, M]
+                # if self.rank==0:
+                #    logp_npy_all.append(logp_npy)
+                #    argmax_npy_all.extend(argmax_npy)
+                # self.evaluation(prob_set='prob_test')
             #### END EVALUATION ####
+            # epoch = self.example_counter // self.config.n_epochs
+            # if epoch == saving_epoch and epoch!=6:
+            #    output_dir = os.path.join(self.config.save_path)
+            #    self.save_pt(epoch,output_dir)
+            #    saving_epoch+=2
 
             #### BEGIN TRAINING ####
             self.policy.train()
@@ -675,11 +681,15 @@ class BasicTrainer(object):
             #     rank0_print(f'skipping logging after {self.example_counter} examples to avoid logging too frequently')
             #### END TRAINING ####
         # --- Train numpy results
-        if self.config.fine_evaluation:
-            output_dir = os.path.join(self.config.save_path, f'logp_npy_all_{self.config.train_supervise}.npy')
-            output_dir_argmax = os.path.join(self.config.save_path, f'argmax_token_all_{self.config.train_supervise}.npy')
-            #breakpoint()
-            np.save(output_dir, np.array(logp_npy_all))
+        # if self.config.fine_evaluation:
+            # output_dir = os.path.join(self.config.save_path, f'logp_npy_all_{self.config.train_supervise}.npy')
+            # output_dir_argmax = os.path.join(self.config.save_path, f'argmax_token_all_{self.config.train_supervise}.npy')
+            # breakpoint()
+            # np.save(output_dir, np.array(logp_npy_all))
+            # print("=====================DEBUG================")
+            # print(type(argmax_npy_all))
+            # print(type(argmax_npy_all[0]))
+            # print("=====================DEBUG================")
             # np.save(output_dir_argmax, np.array(argmax_npy_all, dtype=object), allow_pickle=True)
             
         if self.config.save_ckp:
@@ -714,6 +724,17 @@ class BasicTrainer(object):
         with open(output_name, 'a',newline='\n') as f:
             json.dump(metrics, f)
             f.write('\n')
+    
+    def save_pt(self,epoch:int,output_dir: Optional[str]=None,metrics: Optional[Dict] = None):
+        policy_state_dict = self.policy.state_dict()
+        self.write_state_dict(
+            self.example_counter,
+            policy_state_dict,
+            metrics,
+            f'policy_{epoch}.pt',
+            output_dir
+        )
+        del policy_state_dict
 
     def save(self, output_dir: Optional[str] = None, metrics: Optional[Dict] = None):
         """Save policy, optimizer, and scheduler state to disk."""
