@@ -109,36 +109,44 @@ def main(config: DictConfig):
     if config.loss.name in {'dpo', 'ipo'}:
         raise NotImplementedError('DPO/IPO not yet implemented')
     reference_model = None
-
     if config.model.archive is not None:
-        # state_dict = torch.load(config.model.archive, map_location='cpu')
-        # step, metrics = state_dict['step_idx'], state_dict['metrics']
-        load_path = os.path.join('exp_results', config.model.archive, 'policy.pt')
-        state_dict = torch.load(load_path, map_location='cpu')
-        
-        # print(
-        #     f'loading pre-trained weights at step {step} ' + \
-        #     f'from {config.model.archive} with ' + \
-        #     f'metrics {json.dumps(metrics, indent=2)}'
-        # )
-        policy.load_state_dict(state_dict['state'])
-        if config.loss.name in {'dpo', 'ipo'}:
-            reference_model.load_state_dict(state_dict['state'])
-        print('loaded pre-trained weights')
-    
-    if 'FSDP' in config.trainer:
-        world_size = torch.cuda.device_count()
-        print('starting', world_size, 'processes for FSDP training')
-        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
-        resource.setrlimit(resource.RLIMIT_NOFILE, (hard, hard))
-        print(f'setting RLIMIT_NOFILE soft limit to {hard} from {soft}')
-        mp.spawn(
-            worker_main, nprocs=world_size, 
-            args=(world_size, config, policy, reference_model), join=True
-        )
-    else:
-        print('starting single-process worker')
-        worker_main(0, 1, config, policy, reference_model)
+        model_dir = os.path.join('exp_results', config.model.archive)
+
+        ckpt_map = {
+                "policy_2.pt": f"{config.exp_name}_ep2",
+                "policy_4.pt": f"{config.exp_name}_ep4",
+                "policy.pt":  f"{config.exp_name}_ep6"
+        }
+        print(ckpt_map)
+        for ckpt_name, exp_dir in ckpt_map.items():
+            load_path = os.path.join(model_dir, ckpt_name)
+            if not os.path.exists(load_path):
+                print(f"[WARN] checkpoint not found: {load_path}")
+                continue
+
+            print(f"\n===== Loading checkpoint: {ckpt_name} =====")
+            state_dict = torch.load(load_path, map_location='cpu')
+            policy.load_state_dict(state_dict['state'])
+            if config.loss.name in {'dpo', 'ipo'} and reference_model is not None:
+                reference_model.load_state_dict(state_dict['state'])
+            print(f"Loaded pre-trained weights from {ckpt_name}")
+            config.save_path = os.path.join("exp_results", exp_dir)
+            os.makedirs(config.save_path, exist_ok=True)
+            print(f"Saving inference outputs to {config.save_path}")
+            worker_main(0, 1, config, policy, reference_model)
+    # if 'FSDP' in config.trainer:
+    #    world_size = torch.cuda.device_count()
+    #    print('starting', world_size, 'processes for FSDP training')
+    #    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    #    resource.setrlimit(resource.RLIMIT_NOFILE, (hard, hard))
+    #    print(f'setting RLIMIT_NOFILE soft limit to {hard} from {soft}')
+    #    mp.spawn(
+    #        worker_main, nprocs=world_size, 
+    #        args=(world_size, config, policy, reference_model), join=True
+    #    )
+    # else:
+    #    print('starting single-process worker')
+    #    worker_main(0, 1, config, policy, reference_model)
 
 
 if __name__ == '__main__':
