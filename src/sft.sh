@@ -1,12 +1,12 @@
 export PATH=/usr/local/cuda-12.4/bin:$PATH
 export LD_LIBRARY_PATH=/usr/local/cuda-12.4/lib64:$LD_LIBRARY_PATH
-
+export CUDA_VISIBLE_DEVICES=0
 MODEL="qwen18"
-EXP_NAME="base_sft_qwen18_ep4"
+EXP_NAME="base_sft_qwen18_ep8"
 TRAINER="BasicTrainer"
 TRAIN_SPLIT="train_dpo"
-N_EPOCHS=4
-N_EXAMPLES=20000
+N_EPOCHS=8
+N_EXAMPLES=40000
 SAVE_CKP="true"
 EVAL_EVERY=1000
 

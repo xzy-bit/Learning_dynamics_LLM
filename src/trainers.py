@@ -615,11 +615,11 @@ class BasicTrainer(object):
                 #    argmax_npy_all.extend(argmax_npy)
                 # self.evaluation(prob_set='prob_test')
             #### END EVALUATION ####
-            # epoch = self.example_counter // self.config.n_epochs
-            # if epoch == saving_epoch and epoch!=6:
-            #    output_dir = os.path.join(self.config.save_path)
-            #    self.save_pt(epoch,output_dir)
-            #    saving_epoch+=2
+            epoch = self.example_counter // self.config.n_epochs
+            if epoch == saving_epoch and epoch!=6:
+                output_dir = os.path.join(self.config.save_path)
+                self.save_pt(epoch,output_dir)
+                saving_epoch+=2
 
             #### BEGIN TRAINING ####
             self.policy.train()

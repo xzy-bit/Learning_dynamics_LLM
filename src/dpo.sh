@@ -9,6 +9,6 @@ python -u train.py \
     trainer=BasicTrainer \
     n_epochs=6 \
     n_examples=30000 \
-    model.archive=base_sft_qwen18_ep4 \
+    model.archive=base_sft_qwen18_ep8 \
     save_ckp=true \
     eval_every=1000
