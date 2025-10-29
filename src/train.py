@@ -127,7 +127,7 @@ def main(config: DictConfig):
         #     f'metrics {json.dumps(metrics, indent=2)}'
         # )
         policy.load_state_dict(state_dict['state'])
-        if config.loss.name in {'dpo', 'ipo','sparse-dpo'}:
+        if config.loss.name in {'dpo', 'ipo','sparse_dpo','entmax_dpo'}:
             reference_model.load_state_dict(state_dict['state'])
         print('loaded pre-trained weights')
     
