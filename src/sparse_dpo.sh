@@ -4,7 +4,7 @@ python -u train.py \
     loss=sparse_dpo \
     loss.beta=0.1 \
     model=qwen18 \
-    exp_name=sparse_dpo_qwen18_ep6 \
+    exp_name=sparse_dpo_qwen18_ep6_fixed \
     trainer=BasicTrainer \
     n_epochs=6 \
     n_examples=30000 \
