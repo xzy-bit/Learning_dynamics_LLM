@@ -107,7 +107,7 @@ def main(config: DictConfig):
     )
     disable_dropout(policy)
 
-    if config.loss.name in {'dpo', 'ipo','sparse-dpo'}:
+    if config.loss.name in {'dpo', 'ipo','sparse_dpo','entmax_dpo'}:
         print('building reference model')
         reference_model_dtype = getattr(torch, config.model.reference_dtype)
         reference_model = transformers.AutoModelForCausalLM.from_pretrained(

@@ -4,7 +4,7 @@ import torch.nn.functional as F
 import torch.nn as nn
 import transformers
 from omegaconf import DictConfig
-from entmax import sparsemax_loss,entmax15_loss
+from entmax.losses import SparsemaxLoss,Entmax15Loss
 import torch.distributed as dist
 from torch.distributed.fsdp import (
     FullyShardedDataParallel as FSDP,
@@ -42,6 +42,145 @@ import json
 import functools
 from typing import Optional, Dict, List, Union, Tuple
 
+# --- sparsemax via entmax (with a fallback) -------------------------------
+try:
+    from entmax import sparsemax as _entmax_sparsemax
+    _HAS_ENTMAX = True
+except Exception:
+    _HAS_ENTMAX = False
+
+def _sparsemax(logits: torch.Tensor, dim: int = -1) -> torch.Tensor:
+    """
+    Prefer entmax.sparsemax for numerical stability/performance.
+    Falls back to a local implementation if entmax is unavailable.
+    """
+    if _HAS_ENTMAX:
+        orig_dtype = logits.dtype
+        out = _entmax_sparsemax(logits.to(torch.float32), dim=dim)
+        return out.to(orig_dtype)
+
+    # ---- Fallback: local sparsemax (used only if entmax is missing) ----
+    z = logits
+    z_sorted, _ = torch.sort(z, dim=dim, descending=True)
+    z_cumsum = torch.cumsum(z_sorted, dim=dim)
+    V = z.size(dim)
+
+    rng = torch.arange(1, V + 1, device=z.device, dtype=z.dtype)
+    view = [1] * z.dim()
+    view[dim] = -1
+    tau_candidates = (z_cumsum - 1) / rng.view(view)
+    support = (z_sorted - tau_candidates) > 0
+    k = support.sum(dim=dim, keepdim=True).clamp(min=1)
+    tau = (torch.gather(z_cumsum, dim, k - 1) - 1) / k
+    p = (z - tau).clamp_min(0)
+    return p
+
+def _get_batch_fy_scores(logits: torch.FloatTensor,
+                         labels: torch.LongTensor) -> torch.FloatTensor:
+    """
+    Compute sequence-level Fenchel–Young (sparsemax) scores for each example.
+
+    Returns: scores (B,), where
+      score = - sum_t [ 0.5*||p_t||_2^2 - z_t[y_t] + 0.5 ] over unmasked tokens
+      with p_t = sparsemax(z_t).
+    """
+    assert logits.shape[:-1] == labels.shape
+    # shift like NLL: compare token t to logits at t-1
+    y = labels[:, 1:].clone()
+    z = logits[:, :-1, :]
+    mask = (y != -100)
+    y[y == -100] = 0  # dummy where masked
+
+    # sparsemax probs
+    p = _sparsemax(z, dim=-1)                               # (B, M-1, V)
+
+    # p-norm term: 0.5 * ||p||_2^2
+    p_sq = (p ** 2).sum(dim=-1) * 0.5                       # (B, M-1)
+
+    # z_y term
+    z_y = torch.gather(z, dim=-1, index=y.unsqueeze(-1)).squeeze(-1)  # (B, M-1)
+
+    # constant 0.5 term (only for unmasked tokens)
+    const = 0.5 * mask
+
+    # token FY loss: 0.5||p||^2 - z_y + 0.5
+    fy_token = (p_sq - z_y + const) * mask
+
+    # sequence FY score is negative sum of FY loss
+    scores = - fy_token.sum(dim=-1)
+    return scores
+
+# --- entmax-α (1<α<2) via bisection + FY scores for ENDPO -----------------
+def _entmax_bisect(logits: torch.Tensor, alpha: float = 1.5, dim: int = -1, n_iter: int = 50) -> torch.Tensor:
+    """
+    Numerically stable entmax_α via bisection. Works for 1<α<2.
+    Returns probabilities p on the simplex.
+    """
+    # shift for numerical stability
+    z = logits - logits.amax(dim=dim, keepdim=True)
+
+    # initialize bounds for tau (threshold)
+    tau_lo = z.min(dim=dim, keepdim=True).values - 1.0
+    tau_hi = z.max(dim=dim, keepdim=True).values - 1e-12
+
+    def proj(tau):
+        # p_i = [ (α−1)(z_i − τ) ]_+^{1/(α−1)}
+        relu = torch.clamp((alpha - 1.0) * (z - tau), min=0.0)
+        return relu.pow(1.0 / (alpha - 1.0))
+
+    for _ in range(n_iter):
+        tau_mid = (tau_lo + tau_hi) / 2.0
+        p_mid = proj(tau_mid)
+        s = p_mid.sum(dim=dim, keepdim=True) - 1.0
+        tau_lo = torch.where(s > 0, tau_mid, tau_lo)
+        tau_hi = torch.where(s > 0, tau_hi, tau_mid)
+
+    p = proj(tau_hi)
+    p = p / p.sum(dim=dim, keepdim=True).clamp_min(1e-12)
+    return p
+
+def _fy_sequence_scores_entmax(
+    logits: torch.FloatTensor,
+    labels: torch.LongTensor,
+    alpha: float = 1.5,
+    length_normalize: bool = False,
+) -> torch.FloatTensor:
+    """
+    Compute sequence-level FY scores S = -ℓ_α for entmax_α, masked.
+
+    We use the identity:
+      S = -ℓ_α(z; y) = z_y - <z, p> + Ω_α(p),  with  p = entmax_α(z)
+
+    For Tsallis α regularizer:
+      Ω_α(p) = (sum_i p_i^α) / (α (α-1))   (constants cancel and are omitted)
+    """
+    assert logits.shape[:-1] == labels.shape
+    # shift like NLL: compare token t to logits at t-1
+    y = labels[:, 1:].clone()
+    z = logits[:, :-1, :]
+    mask = (y != -100)
+    y[y == -100] = 0  # dummy where masked
+
+    # entmax_α probabilities
+    p = _entmax_bisect(z, alpha=alpha, dim=-1)  # (B, L-1, V)
+
+    # z_y term
+    z_y = torch.gather(z, dim=-1, index=y.unsqueeze(-1)).squeeze(-1)  # (B, L-1)
+
+    # <z, p>
+    z_dot_p = (z * p).sum(dim=-1)  # (B, L-1)
+
+    # Ω_α(p)
+    omega = p.pow(alpha).sum(dim=-1) / (alpha * (alpha - 1.0))  # (B, L-1)
+
+    token_S = (z_y - z_dot_p + omega) * mask
+
+    if length_normalize:
+        lengths = mask.sum(dim=-1).clamp_min(1)
+        S = token_S.sum(dim=-1) / lengths
+    else:
+        S = token_S.sum(dim=-1)
+    return S
 
 def preference_loss(policy_chosen_logps: torch.FloatTensor,
                     policy_rejected_logps: torch.FloatTensor,
@@ -420,11 +559,11 @@ class BasicTrainer(object):
         all_logits = model(concatenated_batch['concatenated_input_ids'], attention_mask=concatenated_batch['concatenated_attention_mask']).logits.to(torch.float32)
         
         # all_logps, _ = _get_batch_logps(all_logits, concatenated_batch['concatenated_labels'], average_log_prob=False)
-        all_sparsemax_loss = sparsemax_loss(all_logits,concatenated_batch['concatenated_labels'],reduction="none")
-
-        chosen_sparsemax_loss = all_sparsemax_loss[:batch['chosen_input_ids'].shape[0]]
-        rejected_sparsemax_loss = all_sparsemax_loss[batch['chosen_input_ids'].shape[0]:]
-        return chosen_sparsemax_loss, rejected_sparsemax_loss
+        all_scores = _get_batch_fy_scores(all_logits, concatenated_batch['concatenated_labels'])
+        B = batch['chosen_input_ids'].shape[0]
+        chosen_scores = all_scores[:B]
+        rejected_scores = all_scores[B:]
+        return chosen_scores, rejected_scores
 
     def concatenated_forward_ent(self, model: nn.Module, batch: Dict[str, Union[List, torch.LongTensor]]) -> Tuple[
         torch.FloatTensor, torch.FloatTensor]:
@@ -434,13 +573,13 @@ class BasicTrainer(object):
         concatenated_batch = concatenated_inputs(batch)
         all_logits = model(concatenated_batch['concatenated_input_ids'],
                            attention_mask=concatenated_batch['concatenated_attention_mask']).logits.to(torch.float32)
-
-        # all_logps, _ = _get_batch_logps(all_logits, concatenated_batch['concatenated_labels'], average_log_prob=False)
-        all_entmax_loss = entmax15_loss(all_logits, concatenated_batch['concatenated_labels'], reduction="none")
-
-        chosen_entmax_loss = all_entmax_loss[:batch['chosen_input_ids'].shape[0]]
-        rejected_entmax_loss = all_entmax_loss[batch['chosen_input_ids'].shape[0]:]
-        return chosen_entmax_loss, rejected_entmax_loss
+        all_scores = _fy_sequence_scores_entmax(
+                all_logits, concatenated_batch['concatenated_labels'])
+        B = batch['chosen_input_ids'].shape[0]
+        chosen_scores = all_scores[:B]
+        rejected_scores = all_scores[B:]
+        return chosen_scores, rejected_scores
+# -------------------------------------------------------------------------
 
     def get_batch_metrics(
         self,
@@ -500,6 +639,9 @@ class BasicTrainer(object):
                 argmax_token=np.array([-1])
                 
             elif loss_config.name=="sparse_dpo":
+                policy_chosen_logps, policy_rejected_logps = self.concatenated_forward(self.policy, batch)
+                with torch.no_grad():
+                    reference_chosen_logps, reference_rejected_logps = self.concatenated_forward(self.reference_model, batch)
                 policy_chosen_spl, policy_rejected_spl = self.concatenated_forward_sparse(self.policy, batch)
                 with torch.no_grad():
                     reference_chosen_spl, reference_rejected_spl = self.concatenated_forward_sparse(self.reference_model, batch)
@@ -525,6 +667,9 @@ class BasicTrainer(object):
                 argmax_token=np.array([-1])
 
             elif loss_config.name=="entmax_dpo":
+                policy_chosen_logps, policy_rejected_logps = self.concatenated_forward(self.policy, batch)
+                with torch.no_grad():
+                    reference_chosen_logps, reference_rejected_logps = self.concatenated_forward(self.reference_model, batch)
                 policy_chosen_spl, policy_rejected_spl = self.concatenated_forward_ent(self.policy, batch)
                 with torch.no_grad():
                     reference_chosen_spl, reference_rejected_spl = self.concatenated_forward_ent(self.reference_model, batch)
@@ -699,7 +844,7 @@ class BasicTrainer(object):
                 #    argmax_npy_all.extend(argmax_npy)
                 # self.evaluation(prob_set='prob_test')
             #### END EVALUATION ####
-            epoch = self.example_counter // self.config.n_epochs
+            epoch = self.example_counter // 5000
             if epoch == saving_epoch and epoch!=6:
                 output_dir = os.path.join(self.config.save_path)
                 self.save_pt(epoch,output_dir)
