@@ -5,7 +5,7 @@ python -u train.py \
     loss=dpo \
     loss.beta=0.1 \
     model=qwen18 \
-    exp_name=base_dpo_qwen_ep6\
+    exp_name=base_dpo_qwen_ep6_fixed\
     trainer=BasicTrainer \
     n_epochs=6 \
     n_examples=30000 \
