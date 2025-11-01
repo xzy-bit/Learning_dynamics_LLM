@@ -1,7 +1,7 @@
 export CUDA_VISIBLE_DEVICES=1
 export CUDA_LAUNCH_BLOCKING=1
 python -u train.py \
-    loss=sparse-dpo \
+    ldoss=sp_dpo \
     loss.beta=0.1 \
     model=qwen18 \
     exp_name=sparse_dpo_qwen18_ep6 \
