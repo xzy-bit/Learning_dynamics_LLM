@@ -379,14 +379,37 @@ def _get_batch_logps(logits: torch.FloatTensor, labels: torch.LongTensor, averag
     else:
         return out_token, (out_argmax, out_except_argmax, A_norm, prob_gap2_mean, prob_energy, labels_argmax)
 
-def _get_batch_fy_score(logits: torch.FloatTensor, labels: torch.LongTensor, average_log_prob: bool = False) -> torch.FloatTensor:
-    B,_,_, = logits.shape
-    shift_logits = logits[:,:-1,:].contiguous()
-    shift_labels = labels[:,1:].contiguous()
-    mask = shift_labels!=-100
-    shift_logits = shift_logits[mask]
-    shift_labels = shift_labels[mask]
-    return -sparsemax_loss(shift_logits, shift_labels).reshape(B, -1).sum(dim=-1)
+def _get_batch_fy_score(
+    logits: torch.FloatTensor,
+    labels: torch.LongTensor,
+    average_log_prob: bool = False
+) -> torch.FloatTensor:
+    """
+    Compute sequence-level Fenchel–Young (sparsemax) scores for each example.
+    Returns: scores of shape (B,)
+    """
+    B, M, V = logits.shape
+
+    # shift like NLL
+    shift_logits = logits[:, :-1, :].contiguous()    # [B, M-1, V]
+    shift_labels = labels[:, 1:].contiguous()        # [B, M-1]
+    mask = (shift_labels != -100)
+    shift_labels = shift_labels.masked_fill(~mask, 0)
+
+    # compute sparsemax loss per token
+    flat_logits = shift_logits.view(-1, V)
+    flat_labels = shift_labels.view(-1)
+    flat_loss = sparsemax_loss(flat_logits, flat_labels)  # [B*(M-1)]
+
+    # reshape back to [B, M-1]
+    token_loss = flat_loss.view(B, M - 1)
+
+    # apply mask
+    token_loss = token_loss * mask
+
+    # sum over valid tokens
+    scores = -token_loss.sum(dim=-1)    # [B]
+    return scores
 
 def concatenated_inputs(batch: Dict[str, Union[List, torch.LongTensor]]) -> Dict[str, torch.LongTensor]:
     """Concatenate the chosen and rejected inputs into a single tensor.

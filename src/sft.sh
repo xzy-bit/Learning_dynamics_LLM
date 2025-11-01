@@ -1,6 +1,6 @@
 export PATH=/usr/local/cuda-12.4/bin:$PATH
 export LD_LIBRARY_PATH=/usr/local/cuda-12.4/lib64:$LD_LIBRARY_PATH
-export CUDA_VISIBLE_DEVICES=0
+export CUDA_VISIBLE_DEVICES=3
 MODEL="qwen18"
 EXP_NAME="base_sft_qwen18_ep8"
 TRAINER="BasicTrainer"
@@ -11,11 +11,12 @@ SAVE_CKP="true"
 EVAL_EVERY=1000
 
 python -u train.py \
-  model="$MODEL" \
-  exp_name="$EXP_NAME" \
-  trainer="$TRAINER" \
-  train_split="$TRAIN_SPLIT" \
-  n_epochs="$N_EPOCHS" \
-  n_examples="$N_EXAMPLES" \
-  save_ckp="$SAVE_CKP" \
-  eval_every="$EVAL_EVERY"
+  model="qwen18" \
+  exp_name="base_ultrfb_sft_qwen18_ep8" \
+  datasets="ultrafb" \
+  trainer="BasicTrainer" \
+  train_split="train_dpo" \
+  n_epochs="8" \
+  n_examples="40000" \
+  save_ckp="true" \
+  eval_every="1000"
