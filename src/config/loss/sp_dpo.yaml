@@ -1,5 +1,5 @@
 # do DPO preference-based training
-name: sparse_dpo
+name: sp_dpo
 
 # the temperature parameter for DPO; lower values mean we care less about
 #   the reference model

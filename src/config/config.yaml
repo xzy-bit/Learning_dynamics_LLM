@@ -3,7 +3,7 @@ seed: 1024
 
 # name for this experiment in the local run directory and on wandb
 exp_name: default
-save_path: exp_results
+save_path: fixed_exp
 
 # the batch size for training; for FSDP, the batch size per GPU is batch_size / (grad_accumulation_steps * num_gpus)
 batch_size: 4
