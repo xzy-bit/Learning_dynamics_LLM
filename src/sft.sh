@@ -1,11 +1,11 @@
 export PATH=/usr/local/cuda-12.4/bin:$PATH
 export LD_LIBRARY_PATH=/usr/local/cuda-12.4/lib64:$LD_LIBRARY_PATH
 export CUDA_VISIBLE_DEVICES=3
-# MODEL="qwen18"
-MODEL="pythia410m"
+MODEL="qwen18"
+#MODEL="pythia410m"
 
-DATASET="hh"
-# DATASET="ultrafb"
+# DATASET="hh"
+DATASET="ultrafb"
 TRAINER="BasicTrainer"
 TRAIN_SPLIT="train_dpo"
 N_EPOCHS=8
@@ -14,7 +14,7 @@ EVAL_EVERY=1000
 
 python -u train.py \
   model=$MODEL \
-  exp_name="base_${DATASET}_sft_${MODEL}_ep${N_EPOCHS}" \
+  exp_name="base_${DATASET}_sft_${MODEL}_ep${N_EPOCHS}_redo" \
   datasets=$DATASET \
   trainer="BasicTrainer" \
   train_split="train_dpo" \
