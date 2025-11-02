@@ -4,7 +4,7 @@ import torch.nn.functional as F
 import torch.nn as nn
 import transformers
 from omegaconf import DictConfig
-from entmax import sparsemax_loss,entmax15_loss
+from entmax import sparsemaxloss
 import torch.distributed as dist
 from torch.distributed.fsdp import (
     FullyShardedDataParallel as FSDP,
@@ -41,7 +41,6 @@ import time
 import json
 import functools
 from typing import Optional, Dict, List, Union, Tuple
-
 
 def preference_loss(policy_chosen_logps: torch.FloatTensor,
                     policy_rejected_logps: torch.FloatTensor,
@@ -247,7 +246,6 @@ def _get_batch_fy_score(
 ) -> torch.FloatTensor:
     """
     Compute sequence-level Fenchel–Young (sparsemax) scores for each example.
-    Uses entmax.losses.SparsemaxLoss (no change of implementation).
     Returns: scores of shape (B,)
     """
     B, M, V = logits.shape
@@ -272,7 +270,6 @@ def _get_batch_fy_score(
     # sum over valid tokens
     scores = -token_loss.sum(dim=-1)    # [B]
     return scores
-
 
 def concatenated_inputs(batch: Dict[str, Union[List, torch.LongTensor]]) -> Dict[str, torch.LongTensor]:
     """Concatenate the chosen and rejected inputs into a single tensor.

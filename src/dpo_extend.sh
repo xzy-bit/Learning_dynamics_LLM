@@ -1,9 +1,9 @@
-export CUDA_VISIBLE_DEVICES=0
+export CUDA_VISIBLE_DEVICES=1
 python -u train.py \
   loss=dpo \
   loss.beta=0.1 \
   model=qwen18 \
-  exp_name=extend_dpo_qwen18_ep6 \
+  exp_name=extend_dpo_qwen18_ep6_repaired \
   trainer=BasicTrainer \
   n_epochs=6 \
   n_examples=30000 \
