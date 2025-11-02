@@ -4,7 +4,7 @@ import torch.nn.functional as F
 import torch.nn as nn
 import transformers
 from omegaconf import DictConfig
-from entmax import sparsemaxloss
+from entmax import sparsemax_loss
 import torch.distributed as dist
 from torch.distributed.fsdp import (
     FullyShardedDataParallel as FSDP,
