@@ -210,9 +210,19 @@ def _get_batch_logps(logits: torch.FloatTensor, labels: torch.LongTensor, averag
     prob_logits = logits.softmax(-1) # prob version of logits, [B, M, V], easy to get underflow, take care!!!
         # --------- expect_argmax, should be [B, M]
     per_token_prob_argmax = torch.exp(per_token_logps_argmax) #torch.gather(prob_logits, dim=2, index=labels_argmax.unsqueeze(2)).squeeze(2) #[B, M]
-    per_token_prob_exceptargmax =  torch.ones_like(per_token_prob_argmax)* loss_mask - per_token_prob_argmax* loss_mask #[B, M]
-    per_token_logp_exceptargmax = torch.log(per_token_prob_exceptargmax + 1e-100)
-        # --------- |A_o|_F, should be [B, 1]
+    
+    # per_token_prob_exceptargmax =  torch.ones_like(per_token_prob_argmax)* loss_mask - per_token_prob_argmax* loss_mask #[B, M]
+    # per_token_logp_exceptargmax = torch.log(per_token_prob_exceptargmax + 1e-100)
+    
+        # solove nan
+    p_argmax_clamped = per_token_prob_argmax.clamp(max=1 - 1e-9)
+    per_token_logp_exceptargmax = torch.log1p(-p_argmax_clamped) * loss_mask
+    
+    # print("except_argmax_logp mean:", per_token_logp_exceptargmax.mean().item())
+    # print("any NaN:", torch.isnan(per_token_logp_exceptargmax).any().item())
+
+
+    # --------- |A_o|_F, should be [B, 1]
     #prob_norm = torch.norm(prob_logits, dim=-1) # [B, M, V] -> [B, M]
     prob_norm = torch.linalg.vector_norm(prob_logits, ord=2, dim=-1) # [B, M, V] -> [B, M], doing the same thing with previous line
     prob_norm = prob_norm * loss_mask # [B, M], all other dims are zeros
@@ -229,7 +239,7 @@ def _get_batch_logps(logits: torch.FloatTensor, labels: torch.LongTensor, averag
     prob_label_gap = torch.ones_like(prob_label) - prob_label # [B,M]
     prob_energy = (prob_label_gap*loss_mask).sum(-1) / loss_mask.sum(-1)
     #breakpoint()
-
+    
     out_token  = (per_token_logps * loss_mask).sum(-1)  #[B, 1]
     out_argmax = (per_token_logps_argmax * loss_mask).sum(-1)
     out_except_argmax = (per_token_logp_exceptargmax * loss_mask).sum(-1)
@@ -723,7 +733,7 @@ class BasicTrainer(object):
         last_log = None
         logp_npy_all = []
         argmax_npy_all = []
-        saving_epoch = 2
+        # saving_epoch = 2
         # reload_ref_required = True
         for batch in self.train_iterator:
             #### BEGIN EVALUATION ####
@@ -735,11 +745,11 @@ class BasicTrainer(object):
                 #    argmax_npy_all.extend(argmax_npy)
                 # self.evaluation(prob_set='prob_test')
             #### END EVALUATION ####
-            epoch = self.example_counter // self.config.n_examples
-            if epoch == saving_epoch and epoch!=6:
-                output_dir = os.path.join(self.config.save_path)
-                self.save_pt(epoch,output_dir)
-                saving_epoch+=2
+            # epoch = self.example_counter // self.config.n_examples
+            # if epoch == saving_epoch and epoch!=6:
+            #    output_dir = os.path.join(self.config.save_path)
+            #    self.save_pt(epoch,output_dir)
+            #    saving_epoch+=2
 
             #### BEGIN TRAINING ####
             self.policy.train()
