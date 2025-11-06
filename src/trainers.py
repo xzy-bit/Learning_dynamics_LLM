@@ -86,6 +86,57 @@ def preference_loss(policy_chosen_logps: torch.FloatTensor,
 
     return losses, chosen_rewards, rejected_rewards
 
+def try_something_new(
+    policy_chosen_logps,
+    policy_rejected_logps,
+    reference_chosen_logps,
+    reference_rejected_logps,
+    beta: float,
+    label_smoothing: float = 0.0,
+    ipo: bool = False,
+    reference_free: bool = False,
+):
+    eps = 1e-8
+
+    def inverse_log_normalize_from_logp(logp):
+        inv_log = 1.0 / (logp + eps)
+        inv_log = inv_log / inv_log.sum(dim=-1, keepdim=True)
+        return inv_log
+
+    # --- transformed distributions (forward uses q, backward uses p) ---
+    q_policy_chosen = inverse_log_normalize_from_logp(policy_chosen_logps)
+    q_policy_rejected = inverse_log_normalize_from_logp(policy_rejected_logps)
+
+
+    policy_chosen_mod = policy_chosen_logps + (q_policy_chosen - policy_chosen_logps).detach()
+    policy_rejected_mod = policy_rejected_logps + (q_policy_rejected - policy_rejected_logps).detach()
+
+
+    q_ref_chosen = inverse_log_normalize_from_logp(reference_chosen_logps).detach()
+    q_ref_rejected = inverse_log_normalize_from_logp(reference_rejected_logps).detach()
+
+    pi_logratios = policy_chosen_mod - policy_rejected_mod
+    ref_logratios = q_ref_chosen - q_ref_rejected
+
+    if reference_free:
+        ref_logratios = 0.0
+
+    logits = pi_logratios - ref_logratios
+
+    # DPO / IPO objective
+    if ipo:
+        losses = (logits - 1 / (2 * beta)) ** 2
+    else:
+        losses = -F.logsigmoid(beta * logits) * (1 - label_smoothing) \
+                 - F.logsigmoid(-beta * logits) * label_smoothing
+
+    chosen_rewards = beta * (policy_chosen_mod - q_ref_chosen)
+    rejected_rewards = beta * (policy_rejected_mod - q_ref_rejected)
+
+    return losses, chosen_rewards, rejected_rewards
+
+
+
 def preference_loss_sparse(policy_chosen_spl: torch.FloatTensor,
                     policy_rejected_spl: torch.FloatTensor,
                     reference_chosen_spl: torch.FloatTensor,
@@ -561,8 +612,8 @@ class BasicTrainer(object):
         chosen_soft_probs = all_soft_probs[:batch['chosen_input_ids'].shape[0]]
         rejected_soft_probs = all_soft_probs[batch['chosen_input_ids'].shape[0]:]
 
-        return chosen_logps, rejected_logps,chosen_soft_probs, rejected_soft_probs,
-    
+        return chosen_logps, rejected_logps,chosen_soft_probs, rejected_soft_probs
+
     def concatenated_forward_sparse(self, model: nn.Module, batch: Dict[str, Union[List, torch.LongTensor]]):
         """Run the given model on the given batch of inputs, concatenating the chosen and rejected inputs together.
            But change the logps into FY-loss
@@ -644,20 +695,25 @@ class BasicTrainer(object):
             chosen = self.config.train_supervise
         argmax_token=np.array([0]) # dummy variable for the stupid bug, ugly but useful!!!
         if train:
-            if loss_config.name in {'dpo', 'ipo'} and not force_sft:
+            if loss_config.name in {'dpo', 'ipo','log_dpo'} and not force_sft:
                 policy_chosen_logps, policy_rejected_logps,policy_chosen_probs, policy_rejected_probs = self.concatenated_forward(self.policy, batch)
                 with torch.no_grad():
                     reference_chosen_logps, reference_rejected_logps, reference_chosen_probs, reference_rejected_probs = self.concatenated_forward(self.reference_model, batch)
 
-                if loss_config.name == 'dpo':
+                if loss_config.name == 'dpo'or loss_config.name == 'log_dpo':
                     loss_kwargs = {'beta': loss_config.beta, 'reference_free': loss_config.reference_free, 'label_smoothing': loss_config.label_smoothing, 'ipo': False}
                 elif loss_config.name == 'ipo':
                     loss_kwargs = {'beta': loss_config.beta, 'ipo': True}
                 else:
                     raise ValueError(f'unknown loss {loss_config.name}')
 
-                losses, chosen_rewards, rejected_rewards = preference_loss(
-                    policy_chosen_logps, policy_rejected_logps, reference_chosen_logps, reference_rejected_logps, **loss_kwargs)
+                if loss_config.name == 'dpo':
+                    losses, chosen_rewards, rejected_rewards = preference_loss(
+                        policy_chosen_logps, policy_rejected_logps, reference_chosen_logps, reference_rejected_logps, **loss_kwargs)
+                if loss_config.name == 'log_dpo':
+                    losses, chosen_rewards, rejected_rewards = try_something_new(
+                        policy_chosen_logps, policy_rejected_logps, reference_chosen_logps, reference_rejected_logps,
+                        **loss_kwargs)
 
                 reward_accuracies = (chosen_rewards > rejected_rewards).float()
 
