@@ -130,8 +130,8 @@ def try_something_new(
         losses = -F.logsigmoid(beta * logits) * (1 - label_smoothing) \
                  - F.logsigmoid(-beta * logits) * label_smoothing
 
-    chosen_rewards = beta * (policy_chosen_mod - q_ref_chosen)
-    rejected_rewards = beta * (policy_rejected_mod - q_ref_rejected)
+    chosen_rewards = beta * (policy_chosen_mod - q_ref_chosen).detach()
+    rejected_rewards = beta * (policy_rejected_mod - q_ref_rejected).detach()
 
     return losses, chosen_rewards, rejected_rewards
 
@@ -572,7 +572,7 @@ class BasicTrainer(object):
                 pad_token_id=self.tokenizer.pad_token_id
             )
 
-        if self.config.loss.name in {'dpo', 'ipo','sp_dpo'}:
+        if self.config.loss.name in {'dpo', 'ipo','sp_dpo','log_dpo'}:
             ctx = lambda: (FSDP.summon_full_params(self.reference_model, writeback=False, recurse=False) if 'FSDP' in self.config.trainer else contextlib.nullcontext())
             with ctx():
                 reference_output = self.reference_model.generate(
@@ -588,7 +588,7 @@ class BasicTrainer(object):
             policy_output, skip_special_tokens=True
         )
 
-        if self.config.loss.name in {'dpo', 'ipo','sp_dpo'}:
+        if self.config.loss.name in {'dpo', 'ipo','sp_dpo','log_dpo'}:
             reference_output = pad_to_length(reference_output, self.config.max_length, self.tokenizer.pad_token_id)
             reference_output = all_gather_if_needed(reference_output, self.rank, self.world_size)
             reference_output_decoded = self.tokenizer.batch_decode(reference_output, skip_special_tokens=True)
@@ -940,7 +940,7 @@ class BasicTrainer(object):
         np.random.seed(self.seed)
         random.seed(self.seed)
 
-        if self.config.loss.name in {'dpo', 'ipo','sp_dpo'}:
+        if self.config.loss.name in {'dpo', 'ipo','sp_dpo','log_dpo'}:
             self.reference_model.eval()
 
         self.example_counter = 0
@@ -1203,7 +1203,7 @@ class FSDPTrainer(BasicTrainer):
                 )
                 rank0_print('FSDP activation checkpointing enabled!')
 
-        if config.loss.name in {'dpo', 'ipo','sp_dpo'}:
+        if config.loss.name in {'dpo', 'ipo','sp_dpo','log_dpo'}:
             rank0_print('Sharding reference model...')
             self.reference_model = FSDP(reference_model, **shared_fsdp_kwargs)
 
@@ -1286,7 +1286,7 @@ class TensorParallelTrainer(BasicTrainer):
 
         rank0_print('Sharding policy...')
         self.policy = tp.tensor_parallel(policy, sharded=True)
-        if config.loss.name in {'dpo', 'ipo','sp_dpo'}:
+        if config.loss.name in {'dpo', 'ipo','sp_dpo','log_dpo'}:
             rank0_print('Sharding reference model...')
             self.reference_model = tp.tensor_parallel(
                 reference_model, sharded=False
