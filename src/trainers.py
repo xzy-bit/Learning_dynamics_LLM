@@ -609,11 +609,11 @@ class BasicTrainer(object):
         concatenated_batch = concatenated_inputs(batch)
         all_logits = model(concatenated_batch['concatenated_input_ids'],
                            attention_mask=concatenated_batch['concatenated_attention_mask']).logits.to(torch.float32)
-        chosen_logis = all_logits[:batch['chosen_input_idx'].shape[0]]
-        chosen_labels = concatenated_batch['concatenated_labels'][:batch['chosen_input_idx'].shape[0]]
+        chosen_logis = all_logits[:batch['chosen_input_ids'].shape[0]]
+        chosen_labels = concatenated_batch['concatenated_labels'][:batch['chosen_input_ids'].shape[0]]
 
-        rejected_logits = all_logits[batch['chosen_input_idx'].shape[0]:]
-        rejected_labels = concatenated_batch['concatenated_labels'][batch['chosen_input_idx'].shape[0]:]
+        rejected_logits = all_logits[batch['chosen_input_ids'].shape[0]:]
+        rejected_labels = concatenated_batch['concatenated_labels'][batch['chosen_input_ids'].shape[0]:]
 
         chosen_logps = _get_batch_logps_maksked(chosen_logis, chosen_labels, masked=False, average_log_prob=False)
         rejected_logps = _get_batch_logps_maksked(rejected_logits, rejected_labels, masked=True, average_log_prob=False)
@@ -710,7 +710,7 @@ class BasicTrainer(object):
                     policy_chosen_logps, policy_rejected_logps = self.concatenated_forward(
                         self.policy, batch)
                 with torch.no_grad():
-                    reference_chosen_logps, reference_rejected_logps, reference_chosen_probs, reference_rejected_probs = self.concatenated_forward(
+                    reference_chosen_logps, reference_rejected_logps  = self.concatenated_forward(
                         self.reference_model, batch)
 
                 if loss_config.name == 'dpo' or loss_config.name == 'masked_dpo':
@@ -857,13 +857,12 @@ class BasicTrainer(object):
                         metrics[f'{k}_A_o'] = policy_argmax_logps[2].cpu().numpy().tolist()
                         metrics[f'logps_{train_test}_{prob_set}/{k}'] = \
                             policy_predict_logps.cpu().numpy().tolist()
-                        # if k == 'chosen':
-                        #     metrics[f'argmax_prob_logits'] = policy_argmax_logps[0].cpu().numpy().tolist()
-                        #     metrics[f'except_argmax_prob_logits'] = policy_argmax_logps[1].cpu().numpy().tolist()
-                        #
-                        #     metrics[f'p_e'] = policy_argmax_logps[3].cpu().numpy().tolist()
-                        #     metrics[f'energy'] = policy_argmax_logps[4].cpu().numpy().tolist()
-                        #     argmax_token = policy_argmax_logps[5].squeeze().cpu().numpy()
+                        if k == 'chosen':
+                             metrics[f'argmax_prob_logits'] = policy_argmax_logps[0].cpu().numpy().tolist()
+                             metrics[f'except_argmax_prob_logits'] = policy_argmax_logps[1].cpu().numpy().tolist()
+                             metrics[f'p_e'] = policy_argmax_logps[3].cpu().numpy().tolist()
+                             metrics[f'energy'] = policy_argmax_logps[4].cpu().numpy().tolist()
+                             argmax_token = policy_argmax_logps[5].squeeze().cpu().numpy()
 
             loss_mean = 0
         return loss_mean, metrics, argmax_token

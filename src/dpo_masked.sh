@@ -8,10 +8,10 @@ N_EPOCHS=6
 DATASET="hh"
 
 python -u train.py \
-    loss=log_dpo \
+    loss=masked_dpo \
     loss.beta=0.1 \
     model=$MODEL \
-    exp_name="log_dpo_${DATASET}_${MODEL}_new_metric" \
+    exp_name="masked_dpo_${DATASET}_${MODEL}_ep6" \
     trainer=BasicTrainer \
     n_epochs=6 \
     n_examples=30000 \
