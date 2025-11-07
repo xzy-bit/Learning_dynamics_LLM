@@ -269,12 +269,7 @@ def _aggregate_token_metrics(logits: torch.FloatTensor,
 
     Returns: dict of shape [B] tensors (sample-level)
       - softmax_label_mean:     平均 softmax(z_chosen)
-      - sparsemax_label_mean:   平均 sparsemax(z_chosen)
       - softmax_max_mean:       平均 max softmax(z)
-      - sparsemax_max_mean:     平均 max sparsemax(z)
-      - sparsemax_ones_ratio:   稀疏分布中等于1的比例（对token先平均，再对序列 masked-mean）
-      - softmax_pos_equal_max_ratio:  软max下 p(label)≈max(p) 的比例
-      - sparsemax_pos_equal_max_ratio: 稀疏max下 p(label)≈max(p) 的比例
       - chosen_is_argmax_ratio:  label 是否为 argmax 的比例
     """
     assert logits.shape[:-1] == labels.shape, "shapes must match on (B, M)"
@@ -285,25 +280,17 @@ def _aggregate_token_metrics(logits: torch.FloatTensor,
     labels[labels == -100] = 0
 
     prob_soft = torch.softmax(logits, dim=-1)  # [B, M, V]
-    prob_sparse = sparsemax(logits, dim=-1)  # [B, M, V]
 
     # p(label)
     p_label_soft = torch.gather(prob_soft, 2, labels.unsqueeze(2)).squeeze(2)  # [B, M]
-    p_label_sparse = torch.gather(prob_sparse, 2, labels.unsqueeze(2)).squeeze(2)  # [B, M]
-
-    # max p 及 argmax
     soft_max_vals, soft_argmax_idx = prob_soft.max(dim=-1)  # [B, M]
-    sparse_max_vals, sparse_argmax_idx = prob_sparse.max(dim=-1)  # [B, M]
 
     # 是否 label==argmax
     logits_argmax_idx = logits.argmax(dim=-1)  # [B, M]
     chosen_is_argmax = (labels == logits_argmax_idx) & loss_mask
 
-    # sparsemax == 1 的百分比
-    sparse_eq1_token_ratio = (prob_sparse == 1).float().mean(dim=-1)  # [B, M]
-
     # pos 是否等于该步的最大概率
-    sparse_pos_equal_max = (torch.abs(p_label_sparse - sparse_max_vals) <= eps) & loss_mask
+    label_pos_equal_max = (torch.abs(p_label_soft - soft_max_vals) <= eps) & loss_mask
 
     # masked mean 辅助
     denom = loss_mask.sum(-1).clamp_min(1)  # [B]
@@ -312,17 +299,9 @@ def _aggregate_token_metrics(logits: torch.FloatTensor,
         return (x * loss_mask).sum(-1) / denom
 
     softmax_label = mm(p_label_soft)
-    sparsemax_label = mm(p_label_sparse)
-    # softmax_argmax = mm(soft_max_vals)
-    sparsemax_argmax = mm(sparse_max_vals)
-    sparsemax_argmax_eq1_ratio = mm(sparse_eq1_token_ratio)
-    label_eq_argmax_ratio = mm(sparse_pos_equal_max.float())
-    return softmax_label, {
-        'sparsemax_label': sparsemax_label,
-        'sparsemax_argmax': sparsemax_argmax,
-        'sparsemax_argmax_eq1_ratio': sparsemax_argmax_eq1_ratio,
-        'label_eq_argmax_ratio': label_eq_argmax_ratio
-    }
+    softmax_argmax = mm(soft_max_vals)
+    label_eq_argmax_ratio = mm(label_pos_equal_max.float())
+    return softmax_label,softmax_argmax,label_eq_argmax_ratio
 
 
 def _get_batch_fy_score(
@@ -393,42 +372,44 @@ def _get_batch_logps_maksked(
 @torch.no_grad()
 def _record_eval_probs(metrics, train_test, prob_set, k, logits, labels):
     """
-            Compute and record softmax/sparsemax related statistics for eval stage.
-            包含：
-              - chosen/rejected: softmax(y*), sparsemax(y*)
-              - max(sparsemax)
-              - sparsemax==1 比率 (稀疏度)
-              - chosen是sparsemax argmax的比率
-            """
+    Compute and record SOFTMAX-based statistics for eval stage.
+    包含：
+      - chosen/rejected: softmax(y*)
+      - max softmax(z)
+      - label是否是argmax的比例
+    （去掉 sparsemax 相关指标）
+    """
     labels = labels[:, 1:].clone()
     logits = logits[:, :-1, :]
     loss_mask = (labels != -100)
     labels[labels == -100] = 0
     denom = loss_mask.sum(-1).clamp_min(1)
 
+    # ---- softmax 概率分布 ----
     prob_soft = torch.softmax(logits, dim=-1)
-    prob_sparse = sparsemax(logits, dim=-1)
 
-    soft_label_prob = torch.gather(prob_soft, 2, labels.unsqueeze(2)).squeeze(2)
-    sparse_label_prob = torch.gather(prob_sparse, 2, labels.unsqueeze(2)).squeeze(2)
+    # p(label)
+    soft_label_prob = torch.gather(prob_soft, 2, labels.unsqueeze(2)).squeeze(2)  # [B, M]
 
-    sparse_argmax_vals, sparse_argmax_idx = prob_sparse.max(-1)
-    label_eq_argmax = (labels == sparse_argmax_idx) & loss_mask
+    # p(argmax)
+    soft_argmax_vals, soft_argmax_idx = prob_soft.max(dim=-1)  # [B, M]
+
+    # label 是否等于 argmax
+    label_eq_argmax = (labels == soft_argmax_idx) & loss_mask
     label_eq_argmax_ratio = (label_eq_argmax.float().sum(-1) / denom)
 
-    sparse_eq1_token_ratio = (prob_sparse == 1).float().mean(-1)  # token级
-    sparse_eq1_ratio = (sparse_eq1_token_ratio * loss_mask).sum(-1) / denom
+    # masked mean helper
+    def mm(x):
+        return (x * loss_mask).sum(-1) / denom
 
-    soft_label_mean = (soft_label_prob * loss_mask).sum(-1) / denom
-    sparse_label_mean = (sparse_label_prob * loss_mask).sum(-1) / denom
-    sparse_argmax_mean = (sparse_argmax_vals * loss_mask).sum(-1) / denom
+    # ---- 聚合统计 ----
+    soft_label_mean = mm(soft_label_prob)
+    soft_argmax_mean = mm(soft_argmax_vals)
 
-    metrics[f'softmax_{train_test}_{prob_set}/{k}'] = soft_label_mean.cpu().numpy().tolist()
-    metrics[f'sparsemax_{train_test}_{prob_set}/{k}'] = sparse_label_mean.cpu().numpy().tolist()
-    metrics[f'sparsemax_argmax_{train_test}_{prob_set}/{k}'] = sparse_argmax_mean.cpu().numpy().tolist()
-    metrics[f'sparsemax_eq1_ratio_{train_test}_{prob_set}/{k}'] = sparse_eq1_ratio.cpu().numpy().tolist()
-    metrics[f'label_eq_argmax_ratio_{train_test}_{prob_set}/{k}'] = label_eq_argmax_ratio.cpu().numpy().tolist()
-
+    # ---- 写入 metrics ----
+    metrics[f'softmax_mean_{train_test}_{prob_set}/{k}'] = soft_label_mean.cpu().numpy().tolist()
+    metrics[f'softmax_argmax)_mean_{train_test}_{prob_set}/{k}'] = soft_argmax_mean.cpu().numpy().tolist()
+    metrics[f'label_eq_argmax_ratio_mean_{train_test}_{prob_set}/{k}'] = label_eq_argmax_ratio.cpu().numpy().tolist()
 
 def concatenated_inputs(batch: Dict[str, Union[List, torch.LongTensor]]) -> Dict[str, torch.LongTensor]:
     """Concatenate the chosen and rejected inputs into a single tensor.
@@ -620,45 +601,45 @@ class BasicTrainer(object):
 
         return chosen_logps, rejected_logps
 
-    def concatenated_forward_sparse(self, model: nn.Module, batch: Dict[str, Union[List, torch.LongTensor]]):
-        """Run the given model on the given batch of inputs, concatenating the chosen and rejected inputs together.
-           But change the logps into FY-loss
-        """
-        concatenated_batch = concatenated_inputs(batch)
-        all_logits = model(concatenated_batch['concatenated_input_ids'],
-                           attention_mask=concatenated_batch['concatenated_attention_mask']).logits.to(torch.float32)
-
-        # all_logps, _ = _get_batch_logps(all_logits, concatenated_batch['concatenated_labels'], average_log_prob=False)
-        all_scores = _get_batch_fy_score(all_logits, concatenated_batch['concatenated_labels'])
-
-        # record the logprob
-        with torch.no_grad():
-            all_logps, _ = _get_batch_logps(all_logits, concatenated_batch['concatenated_labels'],
-                                            average_log_prob=False)
-        chosen_logps = all_logps[:batch['chosen_input_ids'].shape[0]]
-        rejected_logps = all_logps[batch['chosen_input_ids'].shape[0]:]
-
-        chosen_score = all_scores[:batch['chosen_input_ids'].shape[0]]
-        rejected_score = all_scores[batch['chosen_input_ids'].shape[0]:]
-
-        all_soft_probs, metrics = _aggregate_token_metrics(all_logits, concatenated_batch['concatenated_labels'])
-        chosen_soft_probs = all_soft_probs[:batch['chosen_input_ids'].shape[0]]
-        rejected_soft_probs = all_soft_probs[batch['chosen_input_ids'].shape[0]:]
-
-        sparsemax_label = metrics['sparsemax_label']
-        sparsemax_argmax = metrics['sparsemax_argmax']
-        sparsemax_argmax_eq1_ratio = metrics['sparsemax_argmax_eq1_ratio']
-        label_eq_argmax_ratio = metrics['label_eq_argmax_ratio']
-
-        chosen_sparse_probs = sparsemax_label[:batch['chosen_input_ids'].shape[0]]
-        rejected_sparse_probs = sparsemax_label[batch['chosen_input_ids'].shape[0]:]
-
-        chosen_sparse_argmax = sparsemax_argmax[:batch['chosen_input_ids'].shape[0]]
-        chosen_sparse_eq1_ratio = sparsemax_argmax_eq1_ratio[:batch['chosen_input_ids'].shape[0]]
-
-        chosen_label_eq_argmax_ratio = label_eq_argmax_ratio[:batch['chosen_input_ids'].shape[0]]
-
-        return chosen_score, rejected_score, chosen_logps, rejected_logps, chosen_soft_probs, rejected_soft_probs, chosen_sparse_probs, rejected_sparse_probs, chosen_sparse_argmax, chosen_sparse_eq1_ratio, chosen_label_eq_argmax_ratio
+    # def concatenated_forward_sparse(self, model: nn.Module, batch: Dict[str, Union[List, torch.LongTensor]]):
+    #     """Run the given model on the given batch of inputs, concatenating the chosen and rejected inputs together.
+    #        But change the logps into FY-loss
+    #     """
+    #     concatenated_batch = concatenated_inputs(batch)
+    #     all_logits = model(concatenated_batch['concatenated_input_ids'],
+    #                        attention_mask=concatenated_batch['concatenated_attention_mask']).logits.to(torch.float32)
+    #
+    #     # all_logps, _ = _get_batch_logps(all_logits, concatenated_batch['concatenated_labels'], average_log_prob=False)
+    #     all_scores = _get_batch_fy_score(all_logits, concatenated_batch['concatenated_labels'])
+    #
+    #     # record the logprob
+    #     with torch.no_grad():
+    #         all_logps, _ = _get_batch_logps(all_logits, concatenated_batch['concatenated_labels'],
+    #                                         average_log_prob=False)
+    #     chosen_logps = all_logps[:batch['chosen_input_ids'].shape[0]]
+    #     rejected_logps = all_logps[batch['chosen_input_ids'].shape[0]:]
+    #
+    #     chosen_score = all_scores[:batch['chosen_input_ids'].shape[0]]
+    #     rejected_score = all_scores[batch['chosen_input_ids'].shape[0]:]
+    #
+    #     all_soft_probs, metrics = _aggregate_token_metrics(all_logits, concatenated_batch['concatenated_labels'])
+    #     chosen_soft_probs = all_soft_probs[:batch['chosen_input_ids'].shape[0]]
+    #     rejected_soft_probs = all_soft_probs[batch['chosen_input_ids'].shape[0]:]
+    #
+    #     sparsemax_label = metrics['sparsemax_label']
+    #     sparsemax_argmax = metrics['sparsemax_argmax']
+    #     sparsemax_argmax_eq1_ratio = metrics['sparsemax_argmax_eq1_ratio']
+    #     label_eq_argmax_ratio = metrics['label_eq_argmax_ratio']
+    #
+    #     chosen_sparse_probs = sparsemax_label[:batch['chosen_input_ids'].shape[0]]
+    #     rejected_sparse_probs = sparsemax_label[batch['chosen_input_ids'].shape[0]:]
+    #
+    #     chosen_sparse_argmax = sparsemax_argmax[:batch['chosen_input_ids'].shape[0]]
+    #     chosen_sparse_eq1_ratio = sparsemax_argmax_eq1_ratio[:batch['chosen_input_ids'].shape[0]]
+    #
+    #     chosen_label_eq_argmax_ratio = label_eq_argmax_ratio[:batch['chosen_input_ids'].shape[0]]
+    #
+    #     return chosen_score, rejected_score, chosen_logps, rejected_logps, chosen_soft_probs, rejected_soft_probs, chosen_sparse_probs, rejected_sparse_probs, chosen_sparse_argmax, chosen_sparse_eq1_ratio, chosen_label_eq_argmax_ratio
 
     # def concatenated_forward_ent(self, model: nn.Module, batch: Dict[str, Union[List, torch.LongTensor]]) -> Tuple[
     #     torch.FloatTensor, torch.FloatTensor]:
@@ -741,57 +722,57 @@ class BasicTrainer(object):
                 argmax_token = np.array([-1])
 
 
-            elif loss_config.name == "sp_dpo":
-                (policy_chosen_score, policy_rejected_score,
-                 policy_chosen_logps, policy_rejected_logps,
-                 policy_chosen_soft_probs, policy_rejected_soft_probs,
-                 policy_chosen_sparse_probs, policy_rejected_sparse_probs,
-                 policy_chosen_sparse_argmax, policy_chosen_sparse_eq1_ratio, policy_chosen_label_eq_argmax_ratio
-                 ) = self.concatenated_forward_sparse(self.policy, batch)
-
-                with torch.no_grad():
-                    (reference_chosen_score, reference_rejected_score,
-                     reference_chosen_logps, reference_rejected_logps,
-                     reference_chosen_soft_probs, reference_rejected_soft_probs,
-                     reference_chosen_sparse_probs, reference_rejected_sparse_probs,
-                     reference_chosen_sparse_argmax, reference_chosen_sparse_eq1_ratio,
-                     reference_chosen_label_eq_argmax_ratio
-                     ) = self.concatenated_forward_sparse(self.reference_model, batch)
-
-                loss_kwargs = {'beta': loss_config.beta, 'reference_free': loss_config.reference_free,
-                               'label_smoothing': loss_config.label_smoothing, 'ipo': False}
-
-                losses, chosen_rewards, rejected_rewards = preference_loss_sparse(
-                    policy_chosen_score, policy_rejected_score, reference_chosen_score, reference_rejected_score,
-                    **loss_kwargs)
-
-                reward_accuracies = (chosen_rewards > rejected_rewards).float()
-
-                chosen_rewards = all_gather_if_needed(chosen_rewards, self.rank, self.world_size)
-                rejected_rewards = all_gather_if_needed(rejected_rewards, self.rank, self.world_size)
-                reward_accuracies = all_gather_if_needed(reward_accuracies, self.rank, self.world_size)
-
-                metrics[f'rewards_{train_test}/chosen'] = chosen_rewards.cpu().numpy().tolist()
-                metrics[f'rewards_{train_test}/rejected'] = rejected_rewards.cpu().numpy().tolist()
-                metrics[f'rewards_{train_test}/accuracies'] = reward_accuracies.cpu().numpy().tolist()
-                metrics[f'rewards_{train_test}/margins'] = (chosen_rewards - rejected_rewards).cpu().numpy().tolist()
-
-                # === policy softmax/sparsemax 指标 ===
-                metrics[f'softmax_{train_test}/chosen'] = policy_chosen_soft_probs.cpu().numpy().tolist()
-                metrics[f'softmax_{train_test}/rejected'] = policy_rejected_soft_probs.cpu().numpy().tolist()
-                metrics[f'sparsemax_{train_test}/chosen'] = policy_chosen_sparse_probs.cpu().numpy().tolist()
-                metrics[f'sparsemax_{train_test}/rejected'] = policy_rejected_sparse_probs.cpu().numpy().tolist()
-                metrics[f'sparsemax_argmax_{train_test}/chosen'] = policy_chosen_sparse_argmax.cpu().numpy().tolist()
-                metrics[
-                    f'sparsemax_eq1_ratio_{train_test}/chosen'] = policy_chosen_sparse_eq1_ratio.cpu().numpy().tolist()
-                metrics[
-                    f'label_eq_argmax_ratio_{train_test}/chosen'] = policy_chosen_label_eq_argmax_ratio.cpu().numpy().tolist()
-
-                policy_rejected_logps = all_gather_if_needed(policy_rejected_logps.detach(), self.rank, self.world_size)
-                metrics[f'logps_{train_test}/rejected'] = policy_rejected_logps.cpu().numpy().tolist()
-                metrics[f'probs_{train_test}/chosen'] = policy_chosen_soft_probs.cpu().numpy().tolist()
-                metrics[f'probs_{train_test}/rejected'] = policy_rejected_soft_probs.cpu().numpy().tolist()
-                argmax_token = np.array([-1])
+            # elif loss_config.name == "sp_dpo":
+            #     (policy_chosen_score, policy_rejected_score,
+            #      policy_chosen_logps, policy_rejected_logps,
+            #      policy_chosen_soft_probs, policy_rejected_soft_probs,
+            #      policy_chosen_sparse_probs, policy_rejected_sparse_probs,
+            #      policy_chosen_sparse_argmax, policy_chosen_sparse_eq1_ratio, policy_chosen_label_eq_argmax_ratio
+            #      ) = self.concatenated_forward_sparse(self.policy, batch)
+            #
+            #     with torch.no_grad():
+            #         (reference_chosen_score, reference_rejected_score,
+            #          reference_chosen_logps, reference_rejected_logps,
+            #          reference_chosen_soft_probs, reference_rejected_soft_probs,
+            #          reference_chosen_sparse_probs, reference_rejected_sparse_probs,
+            #          reference_chosen_sparse_argmax, reference_chosen_sparse_eq1_ratio,
+            #          reference_chosen_label_eq_argmax_ratio
+            #          ) = self.concatenated_forward_sparse(self.reference_model, batch)
+            #
+            #     loss_kwargs = {'beta': loss_config.beta, 'reference_free': loss_config.reference_free,
+            #                    'label_smoothing': loss_config.label_smoothing, 'ipo': False}
+            #
+            #     losses, chosen_rewards, rejected_rewards = preference_loss_sparse(
+            #         policy_chosen_score, policy_rejected_score, reference_chosen_score, reference_rejected_score,
+            #         **loss_kwargs)
+            #
+            #     reward_accuracies = (chosen_rewards > rejected_rewards).float()
+            #
+            #     chosen_rewards = all_gather_if_needed(chosen_rewards, self.rank, self.world_size)
+            #     rejected_rewards = all_gather_if_needed(rejected_rewards, self.rank, self.world_size)
+            #     reward_accuracies = all_gather_if_needed(reward_accuracies, self.rank, self.world_size)
+            #
+            #     metrics[f'rewards_{train_test}/chosen'] = chosen_rewards.cpu().numpy().tolist()
+            #     metrics[f'rewards_{train_test}/rejected'] = rejected_rewards.cpu().numpy().tolist()
+            #     metrics[f'rewards_{train_test}/accuracies'] = reward_accuracies.cpu().numpy().tolist()
+            #     metrics[f'rewards_{train_test}/margins'] = (chosen_rewards - rejected_rewards).cpu().numpy().tolist()
+            #
+            #     # === policy softmax/sparsemax 指标 ===
+            #     metrics[f'softmax_{train_test}/chosen'] = policy_chosen_soft_probs.cpu().numpy().tolist()
+            #     metrics[f'softmax_{train_test}/rejected'] = policy_rejected_soft_probs.cpu().numpy().tolist()
+            #     metrics[f'sparsemax_{train_test}/chosen'] = policy_chosen_sparse_probs.cpu().numpy().tolist()
+            #     metrics[f'sparsemax_{train_test}/rejected'] = policy_rejected_sparse_probs.cpu().numpy().tolist()
+            #     metrics[f'sparsemax_argmax_{train_test}/chosen'] = policy_chosen_sparse_argmax.cpu().numpy().tolist()
+            #     metrics[
+            #         f'sparsemax_eq1_ratio_{train_test}/chosen'] = policy_chosen_sparse_eq1_ratio.cpu().numpy().tolist()
+            #     metrics[
+            #         f'label_eq_argmax_ratio_{train_test}/chosen'] = policy_chosen_label_eq_argmax_ratio.cpu().numpy().tolist()
+            #
+            #     policy_rejected_logps = all_gather_if_needed(policy_rejected_logps.detach(), self.rank, self.world_size)
+            #     metrics[f'logps_{train_test}/rejected'] = policy_rejected_logps.cpu().numpy().tolist()
+            #     metrics[f'probs_{train_test}/chosen'] = policy_chosen_soft_probs.cpu().numpy().tolist()
+            #     metrics[f'probs_{train_test}/rejected'] = policy_rejected_soft_probs.cpu().numpy().tolist()
+            #     argmax_token = np.array([-1])
 
             # elif loss_config.name=="ent_dpo":
             #     policy_chosen_spl, policy_rejected_spl = self.concatenated_forward_ent(self.policy, batch)
