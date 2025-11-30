@@ -1,6 +1,6 @@
 export CUDA_VISIBLE_DEVICES=3
-MODEL="qwen18"
-#MODEL="pythia410m"
+#MODEL="qwen18"
+MODEL="pythia410m"
 
 # DATASET="hh"
 DATASET="ultrafb"
@@ -12,7 +12,7 @@ EVAL_EVERY=1000
 
 python -u train.py \
   model=$MODEL \
-  exp_name="base_${DATASET}_sft_${MODEL}_ep${N_EPOCHS}_redo" \
+  exp_name="base_${DATASET}_sft_${MODEL}_ep${N_EPOCHS}" \
   datasets=$DATASET \
   trainer="BasicTrainer" \
   train_split="train_dpo" \
