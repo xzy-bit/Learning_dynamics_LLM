@@ -1,20 +1,21 @@
 export CUDA_VISIBLE_DEVICES=3
 export CUDA_LAUNCH_BLOCKING=1
-# export WANDB_MODE=disabled
-MODEL="qwen18"
 #MODEL="pythia410m"
-N_EPOCHS=6
+MODEL="qwen18"
 #DATASET="ultrafb"
 DATASET="hh"
-
+SFT_EPOCHS=2
+N_EPOCHS=6
+EVAL_EVERY=40000
 python -u train.py \
     loss=sp_dpo \
     loss.beta=0.1 \
+    datasets=$DATASET \
     model=$MODEL \
-    exp_name="sparse_dpo_${DATASET}_${MODEL}_new_metric" \
+    exp_name="dpo_sparse_${MODEL}_${DATASET}_ep${N_EPOCHS}"\
     trainer=BasicTrainer \
-    n_epochs=6 \
+    n_epochs=$N_EPOCHS \
     n_examples=30000 \
-    model.archive="base_sft_${MODEL}_ep8" \
+    model.archive="sft_${MODEL}_${DATASET}_ep${SFT_EPOCHS}" \
     save_ckp=true \
-    eval_every=1000
+    eval_every=$EVAL_EVERY

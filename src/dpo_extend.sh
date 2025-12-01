@@ -1,19 +1,21 @@
-export CUDA_VISIBLE_DEVICES=1
+export CUDA_VISIBLE_DEVICES=3
 export CUDA_LAUNCH_BLOCKING=1
-MODEL="pythia410m"
-# MODEL= "qwen18"
-# DATASET="ultrafb"
+#MODEL="pythia410m"
+MODEL="qwen18"
+#DATASET="ultrafb"
 DATASET="hh"
+SFT_EPOCHS=1
 N_EPOCHS=6
-
+EVAL_EVERY=40000
 python -u train.py \
     loss=dpo \
     loss.beta=0.1 \
     model=$MODEL \
-    exp_name="extend_dpo_${DATASET}_${MODEL}_ep${N_EPOCHS}"\
+    datasets=$DATASET \
+    exp_name="dpo_extend_${MODEL}_${DATASET}_ep${N_EPOCHS}"\
     trainer=BasicTrainer \
     n_epochs=$N_EPOCHS \
     n_examples=30000 \
-    model.archive="extend_${DATASET}_sft_${MODEL}_ep8" \
+    model.archive="extend_sft_${MODEL}_${DATASET}_ep${SFT_EPOCHS}" \
     save_ckp=true \
-    eval_every=1000
+    eval_every=$EVAL_EVERY

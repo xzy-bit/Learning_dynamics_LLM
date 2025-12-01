@@ -946,7 +946,7 @@ class BasicTrainer(object):
         last_log = None
         logp_npy_all = []
         argmax_npy_all = []
-        # saving_epoch = 2
+        saving_epoch = 2
         # reload_ref_required = True
         for batch in self.train_iterator:
             #### BEGIN EVALUATION ####
@@ -959,11 +959,11 @@ class BasicTrainer(object):
                 #    argmax_npy_all.extend(argmax_npy)
                 # self.evaluation(prob_set='prob_test')
             #### END EVALUATION ####
-            # epoch = self.example_counter // self.config.n_examples
-            # if epoch == saving_epoch and epoch!=6:
-            #    output_dir = os.path.join(self.config.save_path)
-            #    self.save_pt(epoch,output_dir)
-            #    saving_epoch+=2
+            epoch = self.example_counter // 5000
+            if epoch == saving_epoch and epoch!=6:
+                output_dir = os.path.join(self.config.save_path)
+                self.save_pt(epoch,output_dir)
+                saving_epoch+=2
 
             #### BEGIN TRAINING ####
             self.policy.train()
