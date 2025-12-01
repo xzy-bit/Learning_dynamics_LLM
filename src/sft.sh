@@ -1,14 +1,13 @@
-export CUDA_VISIBLE_DEVICES=1
-MODEL="qwen18"
-#MODEL="pythia410m"
-#
-DATASET="hh"
-#DATASET="ultrafb"
+export CUDA_VISIBLE_DEVICES=2
+#MODEL="qwen18"
+MODEL="pythia410m"
+#DATASET="hh"
+DATASET="ultrafb"
 TRAINER="BasicTrainer"
 TRAIN_SPLIT="train_dpo"
-N_EPOCHS=4
-N_EXAMPLES=20000
-EVAL_EVERY=40000
+N_EPOCHS=8
+N_EXAMPLES=40000
+EVAL_EVERY=1000
 
 python -u train.py \
   model=$MODEL \

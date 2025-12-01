@@ -1,12 +1,12 @@
-export CUDA_VISIBLE_DEVICES=1
+export CUDA_VISIBLE_DEVICES=2
 export CUDA_LAUNCH_BLOCKING=1
-#MODEL="pythia410m"
-MODEL="qwen18"
-#DATASET="ultrafb"
-DATASET="hh"
-SFT_EPOCHS=2
+MODEL="pythia410m"
+#MODEL="qwen18"
+DATASET="ultrafb"
+#DATASET="hh"
+SFT_EPOCHS=8
 N_EPOCHS=6
-EVAL_EVERY=40000
+EVAL_EVERY=1000
 python -u train.py \
     loss=dpo \
     loss.beta=0.1 \

@@ -1,15 +1,15 @@
 export PATH=/usr/local/cuda-12.4/bin:$PATH
 export LD_LIBRARY_PATH=/usr/local/cuda-12.4/lib64:$LD_LIBRARY_PATH
-export CUDA_VISIBLE_DEVICES=2
-MODEL="qwen18"
+export CUDA_VISIBLE_DEVICES=3
+#MODEL="qwen18"
 
-#MODEL="pythia410m"
-DATASET="hh"
-#DATASET="ultrafb"
+MODEL="pythia410m"
+#DATASET="hh"
+DATASET="ultrafb"
 TRAIN_SPLIT="train_sft_extend"
-N_EPOCHS=1
-N_EXAMPLES=10000
-EVAL_EVERY=20000
+N_EPOCHS=4
+N_EXAMPLES=40000
+EVAL_EVERY=1000
 
 python -u train.py \
   model=$MODEL \
