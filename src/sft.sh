@@ -1,17 +1,17 @@
 export CUDA_VISIBLE_DEVICES=2
-#MODEL="qwen18"
-MODEL="pythia410m"
-#DATASET="hh"
-DATASET="ultrafb"
+MODEL="qwen18"
+#MODEL="pythia410m"
+DATASET="hh"
+#DATASET="ultrafb"
 TRAINER="BasicTrainer"
 TRAIN_SPLIT="train_dpo"
-N_EPOCHS=8
-N_EXAMPLES=40000
-EVAL_EVERY=1000
-
+N_EPOCHS=2
+N_EXAMPLES=10000
+EVAL_EVERY=500
+DATE=$(date +%m%d)
 python -u train.py \
   model=$MODEL \
-  exp_name="sft_${MODEL}_${DATASET}_ep${N_EPOCHS}" \
+  exp_name="sft_${MODEL}_${DATASET}_ep${N_EPOCHS}_${DATE}" \
   datasets=$DATASET \
   trainer="BasicTrainer" \
   train_split="train_dpo" \
