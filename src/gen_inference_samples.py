@@ -46,10 +46,10 @@ def worker_main(rank: int, world_size: int, config: DictConfig, policy: nn.Modul
         policy, config, config.seed, config.local_run_dir,
         reference_model=reference_model, rank=rank, world_size=world_size
     )
-    # trainer.evaluation_get_response("prob_train_gen")# ("prob_train_selfr")#
-    # trainer.evaluation_get_response("prob_test_gen") #("prob_test_selfr")# 
-    trainer.evaluation_get_response("prob_train_selfr")#("prob_train_gen")# 
-    trainer.evaluation_get_response("prob_test_selfr")# ("prob_test_gen") #
+    trainer.evaluation_get_response("prob_train_gen")# ("prob_train_selfr")#
+    trainer.evaluation_get_response("prob_test_gen") #("prob_test_selfr")# 
+    #trainer.evaluation_get_response("prob_train_selfr")#("prob_train_gen")# 
+    #trainer.evaluation_get_response("prob_test_selfr")# ("prob_test_gen") #
     # trainer.train()
     # trainer.save()
 
