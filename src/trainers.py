@@ -360,7 +360,8 @@ def _get_batch_logps_maksked(
         sparsemax_logits = sparsemax(logits, -1).detach()
         per_token_sparsemax = torch.gather(sparsemax_logits, dim=2, index=labels.unsqueeze(2)).squeeze(2)
         sparsemax_mask = (per_token_sparsemax != 0).long()
-        per_token_logps = per_token_logps * sparsemax_mask + per_token_logps.detach() * (1-sparsemax_mask)
+        per_token_logps = per_token_logps * sparsemax_mask
+        #+ per_token_logps.detach() * (1-sparsemax_mask)
 
     per_token_logps = per_token_logps * loss_mask
 
