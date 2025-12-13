@@ -960,7 +960,7 @@ class BasicTrainer(object):
                 # self.evaluation(prob_set='prob_test')
             #### END EVALUATION ####
             epoch = self.example_counter // 5000
-            if epoch == saving_epoch and epoch!=6:
+            if epoch == saving_epoch and epoch!=16:
                 output_dir = os.path.join(self.config.save_path)
                 self.save_pt(epoch,output_dir)
                 saving_epoch+=2
@@ -1220,8 +1220,7 @@ class FSDPTrainer(BasicTrainer):
         save_policy = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
         with FSDP.state_dict_type(
                 self.policy, StateDictType.FULL_STATE_DICT,
-                state_dict_config=save_policy
-        ):
+                state_dict_config=save_policy):
             policy_state_dict = self.policy.state_dict()
 
         if self.rank == 0:
@@ -1241,8 +1240,7 @@ class FSDPTrainer(BasicTrainer):
         with FSDP.state_dict_type(
                 self.policy,
                 StateDictType.FULL_STATE_DICT,
-                optim_state_dict_config=save_policy
-        ):
+                optim_state_dict_config=save_policy):
             optimizer_state_dict = FSDP.optim_state_dict(
                 self.policy, self.optimizer
             )

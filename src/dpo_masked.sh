@@ -5,9 +5,9 @@ MODEL="qwen18"
 #DATASET="ultrafb"
 DATASET="hh"
 SFT_EPOCHS=2
-N_EPOCHS=6
-N_EXAMPLES=30000
-EVAL_EVERY=1000
+N_EPOCHS=16
+N_EXAMPLES=80000
+EVAL_EVERY=100000
 DATE=$(date +%m%d)
 python -u train.py \
     loss=masked_dpo \
@@ -18,6 +18,6 @@ python -u train.py \
     trainer=BasicTrainer \
     n_epochs=$N_EPOCHS \
     n_examples=$N_EXAMPLES \
-    model.archive="sft_${MODEL}_${DATASET}_ep${SFT_EPOCHS}_${DATE}" \
+    model.archive="sft_${MODEL}_${DATASET}_ep${SFT_EPOCHS}_1202" \
     save_ckp=true \
     eval_every=$EVAL_EVERY

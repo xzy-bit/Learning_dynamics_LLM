@@ -111,12 +111,18 @@ def main(config: DictConfig):
     reference_model = None
     if config.model.archive is not None:
         model_dir = os.path.join('exp_results', config.model.archive)
-
+        
         ckpt_map = {
-                "policy_2.pt": f"{config.exp_name}_ep2",
-                "policy_4.pt": f"{config.exp_name}_ep4",
-                "policy.pt":  f"{config.exp_name}_ep6"
+        #        "policy_2.pt": f"{config.exp_name}_ep2",
+        #        "policy_4.pt": f"{config.exp_name}_ep4",
+        #        "policy.pt":  f"{config.exp_name}_ep6"
         }
+        for i in {2,4,6,8,10,12,14}:
+            ckpt_map[f"policy_{i}.pt"]=f"{config.exp_name}_ep{i}"
+
+        ckpt_map["policy.pt"]=f"{config.exp_name}_ep16"
+
+
         print(ckpt_map)
         for ckpt_name, exp_dir in ckpt_map.items():
             load_path = os.path.join(model_dir, ckpt_name)
@@ -127,6 +133,8 @@ def main(config: DictConfig):
             print(f"\n===== Loading checkpoint: {ckpt_name} =====")
             state_dict = torch.load(load_path, map_location='cpu')
             policy.load_state_dict(state_dict['state'])
+            policy.eval()
+            torch.cuda.empty_cache()
             if config.loss.name in {'dpo', 'ipo'} and reference_model is not None:
                 reference_model.load_state_dict(state_dict['state'])
             print(f"Loaded pre-trained weights from {ckpt_name}")
