@@ -353,16 +353,19 @@ def _get_batch_logps_maksked(
     # dummy token; we'll ignore the losses on these tokens later
     labels[labels == -100] = 0
     logprob_logits = logits.log_softmax(-1)
+    prob_logits = logits.softmax(-1)
     V = logprob_logits.shape[-1]
     per_token_logps = torch.gather(logprob_logits, dim=2, index=labels.unsqueeze(2)).squeeze(2)
-
+    per_token_ps = torch.gather(prob_logits, dim=2, index=labels.unsqueeze(2)).squeeze(2)
     if masked:
         sparsemax_logits = sparsemax(logits, -1).detach()
         per_token_sparsemax = torch.gather(sparsemax_logits, dim=2, index=labels.unsqueeze(2)).squeeze(2)
-        sparsemax_mask = (per_token_sparsemax != 0).long()
-        per_token_logps = per_token_logps * sparsemax_mask
-        #+ per_token_logps.detach() * (1-sparsemax_mask)
-
+        #sparsemax_mask = (per_token_sparsemax != 0).long()
+        #per_token_logps = per_token_logps * sparsemax_mask + per_token_logps.detach() * (1-sparsemax_mask)
+        
+        tail = (per_token_sparsemax ==0).float()
+        w = tail * per_token_ps.detach() + (1 - tail)*1.0
+        per_token_logps = per_token_logps * w + per_token_logps.detach() * (1 - w)
     per_token_logps = per_token_logps * loss_mask
 
     # sum over valid tokens

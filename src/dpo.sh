@@ -1,13 +1,13 @@
-export CUDA_VISIBLE_DEVICES=2
+export CUDA_VISIBLE_DEVICES=1
 export CUDA_LAUNCH_BLOCKING=1
 #MODEL="pythia410m"
 MODEL="qwen18"
 #DATASET="ultrafb"
 DATASET="hh"
 SFT_EPOCHS=2
-N_EPOCHS=6
-EVAL_EVERY=1000
-N_EXAMPLES=30000
+N_EPOCHS=16
+EVAL_EVERY=100000
+N_EXAMPLES=80000
 DATE=$(date +%m%d)
 python -u train.py \
     loss=dpo \
@@ -18,6 +18,6 @@ python -u train.py \
     trainer=BasicTrainer \
     n_epochs=$N_EPOCHS \
     n_examples=$N_EXAMPLES \
-    model.archive="sft_${MODEL}_${DATASET}_ep${SFT_EPOCHS}_${DATE}"\
+    model.archive="sft_${MODEL}_${DATASET}_ep${SFT_EPOCHS}_1202"\
     save_ckp=true \
     eval_every=$EVAL_EVERY
