@@ -5,7 +5,7 @@ import torch.nn.functional as F
 import torch.nn as nn
 import transformers
 from omegaconf import DictConfig
-from entmax import sparsemax_loss, sparsemax
+from entmax import sparsemax_loss, sparsemax, entmax_bisect_loss
 import torch.distributed as dist
 from torch.distributed.fsdp import (
     FullyShardedDataParallel as FSDP,
@@ -51,7 +51,7 @@ def preference_loss(policy_chosen_logps: torch.FloatTensor,
                     beta: float,
                     label_smoothing: float = 0.0,
                     ipo: bool = False,
-                    reference_free: bool = False) -> Tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
+                    reference_free: bool = False):
     """Compute the DPO loss for a batch of policy and reference model log probabilities.
 
     Args:
@@ -86,97 +86,8 @@ def preference_loss(policy_chosen_logps: torch.FloatTensor,
     chosen_rewards = beta * (policy_chosen_logps - reference_chosen_logps).detach()
     rejected_rewards = beta * (policy_rejected_logps - reference_rejected_logps).detach()
 
-    return losses, chosen_rewards, rejected_rewards
-
-
-def preference_loss_sparse(policy_chosen_spl: torch.FloatTensor,
-                           policy_rejected_spl: torch.FloatTensor,
-                           reference_chosen_spl: torch.FloatTensor,
-                           reference_rejected_spl: torch.FloatTensor,
-                           beta: float,
-                           label_smoothing: float = 0.0,
-                           ipo: bool = False,
-                           reference_free: bool = False) -> Tuple[
-    torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
-    """Compute the DPO-sparsemax loss for a batch of policy and reference model.
-
-    Args:
-        policy_chosen_spl: Sparsemax loss of the policy model for the chosen responses. Shape: (batch_size,)
-        policy_rejected_spl: Sparsemax loss of the policy model for the rejected responses. Shape: (batch_size,)
-        reference_chosen_spl: Sparsemax losss of the reference model for the chosen responses. Shape: (batch_size,)
-        reference_rejected_spl: Sparsemax loss of the reference model for the rejected responses. Shape: (batch_size,)
-        beta: Temperature parameter for the DPO loss, typically something in the range of 0.1 to 0.5. We ignore the reference model as beta -> 0.
-        label_smoothing: conservativeness for DPO loss, which assumes that preferences are noisy (flipped with probability label_smoothing)
-        ipo: If True, use the IPO loss instead of the DPO loss.
-        reference_free: If True, we ignore the _provided_ reference model and implicitly use a reference model that assigns equal probability to all responses.
-
-    Returns:
-        A tuple of three tensors: (losses, chosen_rewards, rejected_rewards).
-        The losses tensor contains the DPO loss for each example in the batch.
-        The chosen_rewards and rejected_rewards tensors contain the rewards for the chosen and rejected responses, respectively.
-    """
-    pi_splratios = policy_chosen_spl - policy_rejected_spl
-    ref_splratios = reference_chosen_spl - reference_rejected_spl
-
-    if reference_free:
-        ref_splratios = 0
-
-    logits = pi_splratios - ref_splratios  # also known as h_{\pi_\theta}^{y_w,y_l}
-
-    if ipo:
-        losses = (logits - 1 / (2 * beta)) ** 2  # Eq. 17 of https://arxiv.org/pdf/2310.12036v2.pdf
-    else:
-        # Eq. 3 https://ericmitchell.ai/cdpo.pdf; label_smoothing=0 gives original DPO (Eq. 7 of https://arxiv.org/pdf/2305.18290.pdf)
-        losses = -F.logsigmoid(beta * logits) * (1 - label_smoothing) - F.logsigmoid(-beta * logits) * label_smoothing
-
-    chosen_rewards = beta * (policy_chosen_spl - reference_chosen_spl).detach()
-    rejected_rewards = beta * (policy_rejected_spl - reference_rejected_spl).detach()
-
-    return losses, chosen_rewards, rejected_rewards
-
-
-# def preference_loss_ent(policy_chosen_ent: torch.FloatTensor,
-#                     policy_rejected_ent: torch.FloatTensor,
-#                     reference_chosen_ent: torch.FloatTensor,
-#                     reference_rejected_ent: torch.FloatTensor,
-#                     beta: float,
-#                     gamma: float,
-#                     tau: float,
-#                     label_smoothing: float = 0.0,
-#                     ipo: bool = False,
-#                     reference_free: bool = False) -> Tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
-#     """Compute the DPO-sparsemax loss for a batch of policy and reference model.
-#
-#     Args:
-#         policy_chosen_spl: Sparsemax loss of the policy model for the chosen responses. Shape: (batch_size,)
-#         policy_rejected_spl: Sparsemax loss of the policy model for the rejected responses. Shape: (batch_size,)
-#         reference_chosen_spl: Sparsemax losss of the reference model for the chosen responses. Shape: (batch_size,)
-#         reference_rejected_spl: Sparsemax loss of the reference model for the rejected responses. Shape: (batch_size,)
-#         beta: Temperature parameter for the DPO loss, typically something in the range of 0.1 to 0.5. We ignore the reference model as beta -> 0.
-#         label_smoothing: conservativeness for DPO loss, which assumes that preferences are noisy (flipped with probability label_smoothing)
-#         ipo: If True, use the IPO loss instead of the DPO loss.
-#         reference_free: If True, we ignore the _provided_ reference model and implicitly use a reference model that assigns equal probability to all responses.
-#
-#     Returns:
-#         A tuple of three tensors: (losses, chosen_rewards, rejected_rewards).
-#         The losses tensor contains the DPO loss for each example in the batch.
-#         The chosen_rewards and rejected_rewards tensors contain the rewards for the chosen and rejected responses, respectively.
-#     """
-#     delta_pi = policy_chosen_ent - policy_rejected_ent
-#     delta_ref = reference_chosen_ent - reference_rejected_ent
-#
-#     if reference_free:
-#         delta_ref = 0
-#
-#     logits = delta_pi - delta_ref  # also known as h_{\pi_\theta}^{y_w,y_l}
-#
-#     # Eq. 3 https://ericmitchell.ai/cdpo.pdf; label_smoothing=0 gives original DPO (Eq. 7 of https://arxiv.org/pdf/2305.18290.pdf)
-#     losses = -F.logsigmoid(((beta * logits)-gamma)//tau) * (1 - label_smoothing) - F.logsigmoid(((-beta * logits)-gamma)//tau) * label_smoothing
-#
-#     chosen_rewards = beta * (policy_chosen_ent - reference_chosen_ent).detach()
-#     rejected_rewards = beta * (policy_rejected_ent - reference_rejected_ent).detach()
-#
-#     return losses, chosen_rewards, rejected_rewards
+    sigma_m = torch.sigmoid(beta * logits).detach()
+    return losses, chosen_rewards, rejected_rewards, sigma_m
 
 def _get_batch_logps(logits: torch.FloatTensor, labels: torch.LongTensor,
                      average_log_prob: bool = False) -> torch.FloatTensor:
@@ -259,6 +170,138 @@ def _get_batch_logps(logits: torch.FloatTensor, labels: torch.LongTensor,
         return out_token, (out_argmax, out_except_argmax, A_norm, prob_gap2_mean, prob_energy, labels_argmax)
 
 
+def _get_batch_fy_score(
+        logits: torch.FloatTensor,
+        labels: torch.LongTensor,
+        average_log_prob: bool = False
+):
+    """
+    Compute sequence-level Fenchel–Young (sparsemax) scores for each example.
+    Returns: scores of shape (B,1)
+    """
+    B, M, V = logits.shape
+
+    # shift like NLL
+    shift_logits = logits[:, :-1, :].contiguous()  # [B, M-1, V]
+    shift_labels = labels[:, 1:].contiguous()  # [B, M-1]
+    mask = (shift_labels != -100)
+    shift_labels = shift_labels.masked_fill(~mask, 0)
+
+    # compute sparsemax loss per token
+    flat_logits = shift_logits.view(-1, V)
+    flat_labels = shift_labels.view(-1)
+    flat_loss = sparsemax_loss(flat_logits, flat_labels)  # [B*(M-1)]
+
+    # reshape back to [B, M-1]
+    token_loss = flat_loss.view(B, M - 1)
+
+    # apply mask
+    token_loss = token_loss * mask
+
+    # sum over valid tokens
+    # out_token  = (per_token_logps * loss_mask).sum(-1)  #[B, 1]
+    scores = -token_loss.sum(-1)
+    return scores
+
+
+def _get_batch_ent_score(
+        logits: torch.FloatTensor,
+        labels: torch.LongTensor,
+        alpha: float = 1.5,
+        average_log_prob: bool = False
+):
+    """
+    Compute sequence-level Fenchel–Young (sparsemax) scores for each example.
+    Returns: scores of shape (B,1)
+    """
+    B, M, V = logits.shape
+
+    # shift like NLL
+    shift_logits = logits[:, :-1, :].contiguous()  # [B, M-1, V]
+    shift_labels = labels[:, 1:].contiguous()  # [B, M-1]
+    mask = (shift_labels != -100)
+    shift_labels = shift_labels.masked_fill(~mask, 0)
+
+    # compute sparsemax loss per token
+    flat_logits = shift_logits.view(-1, V)
+    flat_labels = shift_labels.view(-1)
+    flat_loss = entmax_bisect_loss(flat_logits, flat_labels, alpha, n_iter=50)  # [B*(M-1)]
+
+    # reshape back to [B, M-1]
+    token_loss = flat_loss.view(B, M - 1)
+
+    # apply mask
+    token_loss = token_loss * mask
+
+    # sum over valid tokens
+    # out_token  = (per_token_logps * loss_mask).sum(-1)  #[B, 1]
+    scores = -token_loss.sum(-1)
+    return scores
+
+
+def _get_batch_logps_masked(
+        logits: torch.FloatTensor,
+        labels: torch.LongTensor,
+        masked: bool = False,
+        mask_type: str = "sparsemax",   # ["sparsemax", "ratio", "topk"]
+        mask_ratio: float = 0.5,        # for quantile: e.g. 0.5 / 0.9
+        topk: int = 50,                 # for topk
+        mask_strength: float = 0.0,     # λ in gradient scaling
+):
+    """
+    Returns:
+        out_token: [B] sequence-level log-prob
+        stats: dict with zero_ratio
+    """
+    assert logits.shape[:-1] == labels.shape
+
+    labels = labels[:, 1:].clone()           # [B, M]
+    logits = logits[:, :-1, :]               # [B, M, V]
+    loss_mask = (labels != -100)             # [B, M]
+
+    labels[labels == -100] = 0
+
+    logprob_logits = logits.log_softmax(-1)  # [B, M, V]
+    per_token_logps = torch.gather(logprob_logits, dim=2, index=labels.unsqueeze(2)).squeeze(2) # [B, M]
+
+    zero_ratio = None
+
+    if masked:
+        with torch.no_grad():
+            prob_logits = logits.softmax(-1)     # [B, M, V]
+            label_prob = torch.gather(prob_logits, dim=2, index=labels.unsqueeze(2)).squeeze(2) # [B, M]
+            if mask_type == "sparsemax":
+                sparsemax_logits = sparsemax(logits, dim=-1)
+                per_token_sparsemax = torch.gather(sparsemax_logits, dim=2, index=labels.unsqueeze(2)).squeeze(2)
+                tail = (per_token_sparsemax == 0)    # bool
+
+            elif mask_type == "ratio":
+                # rank = number of probs >= p(label)
+                rank = (prob_logits >= label_prob.unsqueeze(-1)).sum(dim=-1)
+                V = prob_logits.shape[-1]
+                tail = rank > int(mask_ratio * V)
+
+            elif mask_type == "topk":
+                topk_vals, _ = prob_logits.topk(topk, dim=-1)  # [B, M, K]
+                kth_val = topk_vals[..., -1]                   # [B, M]
+                tail = label_prob < kth_val
+            else:
+                raise ValueError(f"Unknown mask_type: {mask_type}")
+
+        w = torch.where(tail,torch.full_like(per_token_logps, 1.0 - mask_strength),torch.ones_like(per_token_logps))
+
+        per_token_logps = per_token_logps * w + per_token_logps.detach() * (1.0 - w)
+
+        valid_mask = loss_mask.bool()
+        zero_ratio = (tail & valid_mask).sum().float() / (valid_mask.sum().float() + 1e-8)
+
+    per_token_logps = per_token_logps * loss_mask
+    out_token = per_token_logps.sum(-1)      # [B]
+
+    return out_token, {
+        "zero_ratio": zero_ratio.detach() if zero_ratio is not None else None
+    }
+
 @torch.no_grad()
 def _aggregate_token_metrics(logits: torch.FloatTensor,
                              labels: torch.LongTensor,
@@ -303,86 +346,6 @@ def _aggregate_token_metrics(logits: torch.FloatTensor,
     label_eq_argmax_ratio = mm(label_pos_equal_max.float())
     return softmax_label,softmax_argmax,label_eq_argmax_ratio
 
-
-def _get_batch_fy_score(
-        logits: torch.FloatTensor,
-        labels: torch.LongTensor,
-        average_log_prob: bool = False
-) -> torch.FloatTensor:
-    """
-    Compute sequence-level Fenchel–Young (sparsemax) scores for each example.
-    Returns: scores of shape (B,1)
-    """
-    B, M, V = logits.shape
-
-    # shift like NLL
-    shift_logits = logits[:, :-1, :].contiguous()  # [B, M-1, V]
-    shift_labels = labels[:, 1:].contiguous()  # [B, M-1]
-    mask = (shift_labels != -100)
-    shift_labels = shift_labels.masked_fill(~mask, 0)
-
-    # compute sparsemax loss per token
-    flat_logits = shift_logits.view(-1, V)
-    flat_labels = shift_labels.view(-1)
-    flat_loss = sparsemax_loss(flat_logits, flat_labels)  # [B*(M-1)]
-
-    # reshape back to [B, M-1]
-    token_loss = flat_loss.view(B, M - 1)
-
-    # apply mask
-    token_loss = token_loss * mask
-
-    # sum over valid tokens
-    # out_token  = (per_token_logps * loss_mask).sum(-1)  #[B, 1]
-    scores = -token_loss.sum(-1)
-    return scores
-
-
-def _get_batch_logps_maksked(
-        logits: torch.FloatTensor,
-        labels: torch.LongTensor,
-        masked: bool = False,
-        average_log_prob: bool = False
-) -> torch.FloatTensor:
-    assert logits.shape[:-1] == labels.shape
-
-    labels = labels[:, 1:].clone()
-    logits = logits[:, :-1, :]
-    loss_mask = (labels != -100)
-   
-    # dummy token; we'll ignore the losses on these tokens later
-    labels[labels == -100] = 0
-    logprob_logits = logits.log_softmax(-1)
-    #prob_logits = logits.softmax(-1)
-    V = logprob_logits.shape[-1]
-    per_token_logps = torch.gather(logprob_logits, dim=2, index=labels.unsqueeze(2)).squeeze(2)
-    #per_token_ps = torch.gather(prob_logits, dim=2, index=labels.unsqueeze(2)).squeeze(2)
-    
-    zero_ratio=None
-
-    if masked:
-        sparsemax_logits = sparsemax(logits, -1).detach()
-        per_token_sparsemax = torch.gather(sparsemax_logits, dim=2, index=labels.unsqueeze(2)).squeeze(2)
-        sparsemax_mask = (per_token_sparsemax != 0).long()
-        
-        #per_token_logps = per_token_logps * sparsemax_mask + per_token_logps.detach() * (1-sparsemax_mask)
-        
-        tail = (per_token_sparsemax ==0).float()
-        w = tail * 0.5 + (1 - tail)*1.0
-        per_token_logps = per_token_logps * w + per_token_logps.detach() * (1 - w)
-
-        valid_mask = loss_mask
-        num_zero = ((~sparsemax_mask) & valid_mask).sum()
-        num_total = valid_mask.sum()
-        zero_ratio = num_zero.float() / (num_total.float() + 1e-8)
-
-    per_token_logps = per_token_logps * loss_mask
-    
-    # sum over valid tokens
-    out_token = per_token_logps.sum(-1)  # [B, 1]
-    return out_token, {
-        "zero_ratio": zero_ratio.detach() if zero_ratio is not None else None
-    }
 
 @torch.no_grad()
 def _record_eval_probs(metrics, train_test, prob_set, k, logits, labels):
@@ -561,7 +524,7 @@ class BasicTrainer(object):
                 pad_token_id=self.tokenizer.pad_token_id
             )
 
-        if self.config.loss.name in {'dpo', 'ipo', 'sp_dpo', 'masked_dpo'}:
+        if self.config.loss.name in {'dpo', 'ipo', 'sp_dpo', 'masked_dpo','ent_dpo'}:
             ctx = lambda: (FSDP.summon_full_params(self.reference_model, writeback=False,
                                                    recurse=False) if 'FSDP' in self.config.trainer else contextlib.nullcontext())
             with ctx():
@@ -579,7 +542,7 @@ class BasicTrainer(object):
             policy_output, skip_special_tokens=True
         )
 
-        if self.config.loss.name in {'dpo', 'ipo', 'sp_dpo', 'masked_dpo'}:
+        if self.config.loss.name in {'dpo', 'ipo', 'sp_dpo', 'masked_dpo','ent_dpo'}:
             reference_output = pad_to_length(reference_output, self.config.max_length, self.tokenizer.pad_token_id)
             reference_output = all_gather_if_needed(reference_output, self.rank, self.world_size)
             reference_output_decoded = self.tokenizer.batch_decode(reference_output, skip_special_tokens=True)
@@ -601,7 +564,7 @@ class BasicTrainer(object):
         rejected_logps = all_logps[batch['chosen_input_ids'].shape[0]:]
         return chosen_logps, rejected_logps
 
-    def concatenated_forward_masked(self, model: nn.Module, batch: Dict[str, Union[List, torch.LongTensor]]):
+    def concatenated_forward_masked(self, model: nn.Module, batch: Dict[str, Union[List, torch.LongTensor]],mask_type:str,mask_ratio:float,mask_top_k:int,mask_strength:float):
         concatenated_batch = concatenated_inputs(batch)
         all_logits = model(concatenated_batch['concatenated_input_ids'],
                            attention_mask=concatenated_batch['concatenated_attention_mask']).logits.to(torch.float32)
@@ -611,8 +574,8 @@ class BasicTrainer(object):
         rejected_logits = all_logits[batch['chosen_input_ids'].shape[0]:]
         rejected_labels = concatenated_batch['concatenated_labels'][batch['chosen_input_ids'].shape[0]:]
 
-        chosen_logps,_ = _get_batch_logps_maksked(chosen_logis, chosen_labels, masked=False, average_log_prob=False)
-        rejected_logps,zero_ratio = _get_batch_logps_maksked(rejected_logits, rejected_labels, masked=True, average_log_prob=False)
+        chosen_logps,_ = _get_batch_logps_masked(chosen_logis, chosen_labels, masked=False)
+        rejected_logps,zero_ratio = _get_batch_logps_masked(rejected_logits, rejected_labels, masked=True,mask_type=mask_type,mask_ratio=mask_ratio,topk=mask_top_k,mask_strength=mask_strength)
 
         return chosen_logps, rejected_logps,zero_ratio
     
@@ -656,25 +619,23 @@ class BasicTrainer(object):
         #return chosen_score, rejected_score, chosen_logps, rejected_logps, chosen_soft_probs, rejected_soft_probs, chosen_sparse_probs, rejected_sparse_probs, chosen_sparse_argmax, chosen_sparse_eq1_ratio, chosen_label_eq_argmax_ratio
         return chosen_score, rejected_score, chosen_logps, rejected_logps
 
-    def concatenated_forward_ent(self, model: nn.Module, batch: Dict[str, Union[List, torch.LongTensor]]) -> Tuple[
-         torch.FloatTensor, torch.FloatTensor]:
+    def concatenated_forward_ent(self, model: nn.Module, batch: Dict[str, Union[List, torch.LongTensor]],alpha):
          """Run the given model on the given batch of inputs, concatenating the chosen and rejected inputs together.
             But change the logps into FY-loss
          """
          concatenated_batch = concatenated_inputs(batch)
          all_logits = model(concatenated_batch['concatenated_input_ids'],
                             attention_mask=concatenated_batch['concatenated_attention_mask']).logits.to(torch.float32)
-    
-         all_logps, _ = _get_batch_logps(all_logits, concatenated_batch['concatenated_labels'], average_log_prob=False)
-         all_entmax_loss = entmax15_loss(all_logits, concatenated_batch['concatenated_labels'], reduction="none")
-    
-         chosen_entmax_loss = all_entmax_loss[:batch['chosen_input_ids'].shape[0]]
-         rejected_entmax_loss = all_entmax_loss[batch['chosen_input_ids'].shape[0]:]
-         
+         all_scores = _get_batch_ent_score(all_logits, concatenated_batch['concatenated_labels'],alpha=alpha)
+         with torch.no_grad():
+             all_logps, _ = _get_batch_logps(all_logits, concatenated_batch['concatenated_labels'],
+                                             average_log_prob=False)
          chosen_logps = all_logps[:batch['chosen_input_ids'].shape[0]]
          rejected_logps = all_logps[batch['chosen_input_ids'].shape[0]:]
 
-         return chosen_entmax_loss, rejected_entmax_loss,chosen_logps, rejected_logps
+         chosen_score = all_scores[:batch['chosen_input_ids'].shape[0]]
+         rejected_score = all_scores[batch['chosen_input_ids'].shape[0]:]
+         return chosen_score, rejected_score, chosen_logps, rejected_logps
 
     def get_batch_metrics(
             self,
@@ -702,19 +663,36 @@ class BasicTrainer(object):
             chosen = self.config.train_supervise
         argmax_token = np.array([0])  # dummy variable for the stupid bug, ugly but useful!!!
         if train:
-            if loss_config.name in {'dpo', 'ipo', 'masked_dpo'} and not force_sft:
-                if loss_config.name == 'masked_dpo':
-                    policy_chosen_logps, policy_rejected_logps,zero_ratio = self.concatenated_forward_masked(
-                        self.policy, batch)
-                    metrics["masked_dpo/tail_ratio"] = [zero_ratio["zero_ratio"].item()]
-                else:
-                    policy_chosen_logps, policy_rejected_logps = self.concatenated_forward(
-                        self.policy, batch)
-                with torch.no_grad():
-                    reference_chosen_logps, reference_rejected_logps  = self.concatenated_forward(
-                        self.reference_model, batch)
+            if loss_config.name in {'dpo', 'ipo', 'masked_dpo','sp_dpo','ent_dpo'} and not force_sft:
+                if loss_config.name == 'masked_dpo' or loss_config.name == 'dpo' or loss_config.name == 'ipo':
+                    if loss_config.name == 'masked_dpo':
+                        policy_chosen_score, policy_rejected_score,zero_ratio = self.concatenated_forward_masked(
+                            self.policy, batch,mask_type=loss_config.mask_type,mask_ratio=loss_config.mask_ratio,
+                            mask_top_k=loss_config.mask_top_k,mask_strength=loss_config.mask_strength
+                        )
+                        metrics["masked_dpo/tail_ratio"] = [zero_ratio["zero_ratio"].item()]
+                    elif loss_config.name == 'dpo' or loss_config.name == 'ipo':
+                        policy_chosen_score, policy_rejected_score = self.concatenated_forward(
+                            self.policy, batch)
+                    with torch.no_grad():
+                        reference_chosen_score, reference_rejected_score = self.concatenated_forward(
+                            self.reference_model, batch)
+                    policy_chosen_logps, policy_rejected_logps = policy_chosen_score, policy_rejected_score
 
-                if loss_config.name == 'dpo' or loss_config.name == 'masked_dpo':
+                elif loss_config.name in {'sp_dpo', 'ent_dpo'}:
+                    if loss_config.name == 'sp_dpo':
+                        policy_chosen_score, policy_rejected_score, policy_chosen_logps, policy_rejected_logps = self.concatenated_forward_sparse(self.policy, batch)
+                        with torch.no_grad():
+                            reference_chosen_score, reference_rejected_score,_,_ = self.concatenated_forward_sparse(
+                                self.reference_model, batch)
+                    else:
+                        alpha = loss_config.alpha
+                        policy_chosen_score, policy_rejected_score, policy_chosen_logps, policy_rejected_logps = self.concatenated_forward_ent(self.policy, batch,alpha)
+                        with torch.no_grad():
+                            reference_chosen_score, reference_rejected_score,_,_ = self.concatenated_forward_ent(
+                                self.reference_model, batch,alpha)
+
+                if loss_config.name in {'dpo', 'masked_dpo','sp_dpo','ent_dpo'}:
                     loss_kwargs = {'beta': loss_config.beta, 'reference_free': loss_config.reference_free,
                                    'label_smoothing': loss_config.label_smoothing, 'ipo': False}
                 elif loss_config.name == 'ipo':
@@ -722,8 +700,8 @@ class BasicTrainer(object):
                 else:
                     raise ValueError(f'unknown loss {loss_config.name}')
 
-                losses, chosen_rewards, rejected_rewards = preference_loss(
-                    policy_chosen_logps, policy_rejected_logps, reference_chosen_logps, reference_rejected_logps,
+                losses, chosen_rewards, rejected_rewards,sigma_m = preference_loss(
+                    policy_chosen_score, policy_rejected_score, reference_chosen_score, reference_rejected_score,
                     **loss_kwargs)
 
                 reward_accuracies = (chosen_rewards > rejected_rewards).float()
@@ -736,22 +714,23 @@ class BasicTrainer(object):
                 metrics[f'rewards_{train_test}/rejected'] = rejected_rewards.cpu().numpy().tolist()
                 metrics[f'rewards_{train_test}/accuracies'] = reward_accuracies.cpu().numpy().tolist()
                 metrics[f'rewards_{train_test}/margins'] = (chosen_rewards - rejected_rewards).cpu().numpy().tolist()
+                metrics[f'rewards_{train_test}/sigma_m'] = sigma_m.cpu().numpy().tolist()
 
                 policy_rejected_logps = all_gather_if_needed(policy_rejected_logps.detach(), self.rank, self.world_size)
                 metrics[f'logps_{train_test}/rejected'] = policy_rejected_logps.cpu().numpy().tolist()
                 argmax_token = np.array([-1])
 
 
-            elif loss_config.name == "sp_dpo":
+            # elif loss_config.name == "sp_dpo":
             #     (policy_chosen_score, policy_rejected_score,
             #      policy_chosen_logps, policy_rejected_logps,
             #      policy_chosen_soft_probs, policy_rejected_soft_probs,
             #      policy_chosen_sparse_probs, policy_rejected_sparse_probs,
             #      policy_chosen_sparse_argmax, policy_chosen_sparse_eq1_ratio, policy_chosen_label_eq_argmax_ratio
             #      ) = self.concatenated_forward_sparse(self.policy, batch)
-            #   
-                 policy_chosen_score, policy_rejected_score,policy_chosen_logps, policy_rejected_logps = self.concatenated_forward_sparse(self.policy, batch)
-                 with torch.no_grad():
+            #
+            #      policy_chosen_score, policy_rejected_score,policy_chosen_logps, policy_rejected_logps = self.concatenated_forward_sparse(self.policy, batch)
+            #      with torch.no_grad():
             #         (reference_chosen_score, reference_rejected_score,
             #          reference_chosen_logps, reference_rejected_logps,
             #          reference_chosen_soft_probs, reference_rejected_soft_probs,
@@ -759,13 +738,13 @@ class BasicTrainer(object):
             #          reference_chosen_sparse_argmax, reference_chosen_sparse_eq1_ratio,
             #          reference_chosen_label_eq_argmax_ratio
             #          ) = self.concatenated_forward_sparse(self.reference_model, batch)
-                    reference_chosen_score, reference_rejected_score,reference_chosen_logps, reference_rejected_logps = self.concatenated_forward_sparse(self.reference_model, batch)
-                 loss_kwargs = {'beta': loss_config.beta, 'reference_free': loss_config.reference_free,
-                                'label_smoothing': loss_config.label_smoothing, 'ipo': False}
+            #         reference_chosen_score, reference_rejected_score,reference_chosen_logps, reference_rejected_logps = self.concatenated_forward_sparse(self.reference_model, batch)
+            #      loss_kwargs = {'beta': loss_config.beta, 'reference_free': loss_config.reference_free,
+            #                     'label_smoothing': loss_config.label_smoothing, 'ipo': False}
             #
-                 losses, chosen_rewards, rejected_rewards = preference_loss_sparse(
-                     policy_chosen_score, policy_rejected_score, reference_chosen_score, reference_rejected_score,
-                     **loss_kwargs)
+            #      losses, chosen_rewards, rejected_rewards = preference_loss_sparse(
+            #          policy_chosen_score, policy_rejected_score, reference_chosen_score, reference_rejected_score,
+            #          **loss_kwargs)
             #
             #     reward_accuracies = (chosen_rewards > rejected_rewards).float()
             #
@@ -789,44 +768,12 @@ class BasicTrainer(object):
             #     metrics[
             #         f'label_eq_argmax_ratio_{train_test}/chosen'] = policy_chosen_label_eq_argmax_ratio.cpu().numpy().tolist()
             #
-            #     policy_rejected_logps = all_gather_if_needed(policy_rejected_logps.detach(), self.rank, self.world_size)
-            #     metrics[f'logps_{train_test}/rejected'] = policy_rejected_logps.cpu().numpy().tolist()
-            #     metrics[f'probs_{train_test}/chosen'] = policy_chosen_soft_probs.cpu().numpy().tolist()
-            #     metrics[f'probs_{train_test}/rejected'] = policy_rejected_soft_probs.cpu().numpy().tolist()
-            #     argmax_token = np.array([-1])
-
-            # elif loss_config.name=="ent_dpo":
-            #     policy_chosen_spl, policy_rejected_spl = self.concatenated_forward_ent(self.policy, batch)
-            #     with torch.no_grad():
-            #         reference_chosen_spl, reference_rejected_spl = self.concatenated_forward_ent(self.reference_model, batch)
-            #
-            #     loss_kwargs = {'beta': loss_config.beta,'gamma':loss_config.gamma,'tau':loss_config.tau, 'reference_free': loss_config.reference_free, 'label_smoothing': loss_config.label_smoothing, 'ipo': False}
-            #
-            #     losses, chosen_rewards, rejected_rewards = preference_loss_ent(
-            #         policy_chosen_spl, policy_rejected_spl, reference_chosen_spl, reference_rejected_spl, **loss_kwargs)
-            #
-            #     reward_accuracies = (chosen_rewards > rejected_rewards).float()
-            #
-            #     chosen_rewards = all_gather_if_needed(chosen_rewards, self.rank, self.world_size)
-            #     rejected_rewards = all_gather_if_needed(rejected_rewards, self.rank, self.world_size)
-            #     reward_accuracies = all_gather_if_needed(reward_accuracies, self.rank, self.world_size)
-            #
-            #     metrics[f'rewards_{train_test}/chosen'] = chosen_rewards.cpu().numpy().tolist()
-            #     metrics[f'rewards_{train_test}/rejected'] = rejected_rewards.cpu().numpy().tolist()
-            #     metrics[f'rewards_{train_test}/accuracies'] = reward_accuracies.cpu().numpy().tolist()
-            #     metrics[f'rewards_{train_test}/margins'] = (chosen_rewards - rejected_rewards).cpu().numpy().tolist()
-            #
-            #     policy_rejected_spl = all_gather_if_needed(policy_rejected_spl.detach(), self.rank, self.world_size)
-            #     metrics[f'logps_{train_test}/rejected'] = policy_rejected_spl.cpu().numpy().tolist()
-            #     argmax_token=np.array([-1])
-
             else:  # if loss_config.name == 'sft':
                 policy_chosen_logits = self.policy(batch[f'{chosen}_input_ids'],
                                                    attention_mask=batch[f'{chosen}_attention_mask']).logits.to(
                     torch.float32)
                 policy_chosen_logps, _ = _get_batch_logps(policy_chosen_logits, batch[f'{chosen}_labels'],
                                                           average_log_prob=False)
-
                 losses = -policy_chosen_logps
 
             policy_chosen_logps = all_gather_if_needed(
@@ -959,7 +906,7 @@ class BasicTrainer(object):
         np.random.seed(self.seed)
         random.seed(self.seed)
 
-        if self.config.loss.name in {'dpo', 'ipo', 'sp_dpo', 'masked_dpo'}:
+        if self.config.loss.name in {'dpo', 'ipo', 'sp_dpo', 'masked_dpo','ent_dpo'}:
             self.reference_model.eval()
 
         self.example_counter = 0
@@ -1223,7 +1170,7 @@ class FSDPTrainer(BasicTrainer):
                 )
                 rank0_print('FSDP activation checkpointing enabled!')
 
-        if config.loss.name in {'dpo', 'ipo', 'sp_dpo', 'masked_dpo'}:
+        if config.loss.name in {'dpo', 'ipo', 'sp_dpo', 'masked_dpo','ent_dpo'}:
             rank0_print('Sharding reference model...')
             self.reference_model = FSDP(reference_model, **shared_fsdp_kwargs)
 
@@ -1304,7 +1251,7 @@ class TensorParallelTrainer(BasicTrainer):
 
         rank0_print('Sharding policy...')
         self.policy = tp.tensor_parallel(policy, sharded=True)
-        if config.loss.name in {'dpo', 'ipo', 'sp_dpo', 'masked_dpo'}:
+        if config.loss.name in {'dpo', 'ipo', 'sp_dpo', 'masked_dpo','ent_dpo'}:
             rank0_print('Sharding reference model...')
             self.reference_model = tp.tensor_parallel(
                 reference_model, sharded=False

@@ -1,5 +1,5 @@
 # do DPO preference-based training
-name: masked_dpo
+name: dpo
 
 # the temperature parameter for DPO; lower values mean we care less about
 #   the reference model
@@ -12,7 +12,4 @@ label_smoothing: 0
 
 # if true, use a uniform (maximum entropy) reference model
 reference_free: false
-mask_type: sparsemax
-mask_ratio: 0.5
-mask_top_k: 50
-mask_strength: 0.5
+alpha: 0.5

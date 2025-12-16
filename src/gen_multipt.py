@@ -106,6 +106,9 @@ def main(config: DictConfig):
     )
     disable_dropout(policy)
 
+    gen_root = os.path.join("exp_results", f"{config.exp_name}")
+    os.makedirs(gen_root, exist_ok=True)
+
     if config.loss.name in {'dpo', 'ipo'}:
         raise NotImplementedError('DPO/IPO not yet implemented')
     reference_model = None
@@ -138,7 +141,8 @@ def main(config: DictConfig):
             if config.loss.name in {'dpo', 'ipo'} and reference_model is not None:
                 reference_model.load_state_dict(state_dict['state'])
             print(f"Loaded pre-trained weights from {ckpt_name}")
-            config.save_path = os.path.join("exp_results", exp_dir)
+
+            config.save_path = os.path.join(gen_root, exp_dir)
             os.makedirs(config.save_path, exist_ok=True)
             print(f"Saving inference outputs to {config.save_path}")
             worker_main(0, 1, config, policy, reference_model)
