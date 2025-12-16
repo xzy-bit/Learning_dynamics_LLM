@@ -656,21 +656,25 @@ class BasicTrainer(object):
         #return chosen_score, rejected_score, chosen_logps, rejected_logps, chosen_soft_probs, rejected_soft_probs, chosen_sparse_probs, rejected_sparse_probs, chosen_sparse_argmax, chosen_sparse_eq1_ratio, chosen_label_eq_argmax_ratio
         return chosen_score, rejected_score, chosen_logps, rejected_logps
 
-    # def concatenated_forward_ent(self, model: nn.Module, batch: Dict[str, Union[List, torch.LongTensor]]) -> Tuple[
-    #     torch.FloatTensor, torch.FloatTensor]:
-    #     """Run the given model on the given batch of inputs, concatenating the chosen and rejected inputs together.
-    #        But change the logps into FY-loss
-    #     """
-    #     concatenated_batch = concatenated_inputs(batch)
-    #     all_logits = model(concatenated_batch['concatenated_input_ids'],
-    #                        attention_mask=concatenated_batch['concatenated_attention_mask']).logits.to(torch.float32)
-    #
-    #     # all_logps, _ = _get_batch_logps(all_logits, concatenated_batch['concatenated_labels'], average_log_prob=False)
-    #     all_entmax_loss = entmax15_loss(all_logits, concatenated_batch['concatenated_labels'], reduction="none")
-    #
-    #     chosen_entmax_loss = all_entmax_loss[:batch['chosen_input_ids'].shape[0]]
-    #     rejected_entmax_loss = all_entmax_loss[batch['chosen_input_ids'].shape[0]:]
-    #     return chosen_entmax_loss, rejected_entmax_loss
+    def concatenated_forward_ent(self, model: nn.Module, batch: Dict[str, Union[List, torch.LongTensor]]) -> Tuple[
+         torch.FloatTensor, torch.FloatTensor]:
+         """Run the given model on the given batch of inputs, concatenating the chosen and rejected inputs together.
+            But change the logps into FY-loss
+         """
+         concatenated_batch = concatenated_inputs(batch)
+         all_logits = model(concatenated_batch['concatenated_input_ids'],
+                            attention_mask=concatenated_batch['concatenated_attention_mask']).logits.to(torch.float32)
+    
+         all_logps, _ = _get_batch_logps(all_logits, concatenated_batch['concatenated_labels'], average_log_prob=False)
+         all_entmax_loss = entmax15_loss(all_logits, concatenated_batch['concatenated_labels'], reduction="none")
+    
+         chosen_entmax_loss = all_entmax_loss[:batch['chosen_input_ids'].shape[0]]
+         rejected_entmax_loss = all_entmax_loss[batch['chosen_input_ids'].shape[0]:]
+         
+         chosen_logps = all_logps[:batch['chosen_input_ids'].shape[0]]
+         rejected_logps = all_logps[batch['chosen_input_ids'].shape[0]:]
+
+         return chosen_entmax_loss, rejected_entmax_loss,chosen_logps, rejected_logps
 
     def get_batch_metrics(
             self,
