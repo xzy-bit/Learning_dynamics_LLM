@@ -349,7 +349,7 @@ def _get_batch_logps_maksked(
     labels = labels[:, 1:].clone()
     logits = logits[:, :-1, :]
     loss_mask = (labels != -100)
-
+   
     # dummy token; we'll ignore the losses on these tokens later
     labels[labels == -100] = 0
     logprob_logits = logits.log_softmax(-1)
@@ -357,21 +357,32 @@ def _get_batch_logps_maksked(
     V = logprob_logits.shape[-1]
     per_token_logps = torch.gather(logprob_logits, dim=2, index=labels.unsqueeze(2)).squeeze(2)
     #per_token_ps = torch.gather(prob_logits, dim=2, index=labels.unsqueeze(2)).squeeze(2)
-    #if masked:
-    #    sparsemax_logits = sparsemax(logits, -1).detach()
-    #    per_token_sparsemax = torch.gather(sparsemax_logits, dim=2, index=labels.unsqueeze(2)).squeeze(2)
-    #    sparsemax_mask = (per_token_sparsemax != 0).long()
-    #    per_token_logps = per_token_logps * sparsemax_mask + per_token_logps.detach() * (1-sparsemax_mask)
-        
-    #    tail = (per_token_sparsemax ==0).float()
-    #    w = tail * per_token_ps.detach() + (1 - tail)*1.0
-    #    per_token_logps = per_token_logps * w + per_token_logps.detach() * (1 - w)
-    per_token_logps = per_token_logps * loss_mask
+    
+    zero_ratio=None
 
+    if masked:
+        sparsemax_logits = sparsemax(logits, -1).detach()
+        per_token_sparsemax = torch.gather(sparsemax_logits, dim=2, index=labels.unsqueeze(2)).squeeze(2)
+        sparsemax_mask = (per_token_sparsemax != 0).long()
+        
+        #per_token_logps = per_token_logps * sparsemax_mask + per_token_logps.detach() * (1-sparsemax_mask)
+        
+        tail = (per_token_sparsemax ==0).float()
+        w = tail * 0.5 + (1 - tail)*1.0
+        per_token_logps = per_token_logps * w + per_token_logps.detach() * (1 - w)
+
+        valid_mask = loss_mask
+        num_zero = ((~sparsemax_mask) & valid_mask).sum()
+        num_total = valid_mask.sum()
+        zero_ratio = num_zero.float() / (num_total.float() + 1e-8)
+
+    per_token_logps = per_token_logps * loss_mask
+    
     # sum over valid tokens
     out_token = per_token_logps.sum(-1)  # [B, 1]
-    return out_token
-
+    return out_token, {
+        "zero_ratio": zero_ratio.detach() if zero_ratio is not None else None
+    }
 
 @torch.no_grad()
 def _record_eval_probs(metrics, train_test, prob_set, k, logits, labels):
@@ -600,50 +611,50 @@ class BasicTrainer(object):
         rejected_logits = all_logits[batch['chosen_input_ids'].shape[0]:]
         rejected_labels = concatenated_batch['concatenated_labels'][batch['chosen_input_ids'].shape[0]:]
 
-        chosen_logps = _get_batch_logps_maksked(chosen_logis, chosen_labels, masked=False, average_log_prob=False)
-        rejected_logps = _get_batch_logps_maksked(rejected_logits, rejected_labels, masked=True, average_log_prob=False)
+        chosen_logps,_ = _get_batch_logps_maksked(chosen_logis, chosen_labels, masked=False, average_log_prob=False)
+        rejected_logps,zero_ratio = _get_batch_logps_maksked(rejected_logits, rejected_labels, masked=True, average_log_prob=False)
 
-        return chosen_logps, rejected_logps
-
-    # def concatenated_forward_sparse(self, model: nn.Module, batch: Dict[str, Union[List, torch.LongTensor]]):
-    #     """Run the given model on the given batch of inputs, concatenating the chosen and rejected inputs together.
-    #        But change the logps into FY-loss
-    #     """
-    #     concatenated_batch = concatenated_inputs(batch)
-    #     all_logits = model(concatenated_batch['concatenated_input_ids'],
-    #                        attention_mask=concatenated_batch['concatenated_attention_mask']).logits.to(torch.float32)
-    #
-    #     # all_logps, _ = _get_batch_logps(all_logits, concatenated_batch['concatenated_labels'], average_log_prob=False)
-    #     all_scores = _get_batch_fy_score(all_logits, concatenated_batch['concatenated_labels'])
-    #
-    #     # record the logprob
-    #     with torch.no_grad():
-    #         all_logps, _ = _get_batch_logps(all_logits, concatenated_batch['concatenated_labels'],
-    #                                         average_log_prob=False)
-    #     chosen_logps = all_logps[:batch['chosen_input_ids'].shape[0]]
-    #     rejected_logps = all_logps[batch['chosen_input_ids'].shape[0]:]
-    #
-    #     chosen_score = all_scores[:batch['chosen_input_ids'].shape[0]]
-    #     rejected_score = all_scores[batch['chosen_input_ids'].shape[0]:]
-    #
-    #     all_soft_probs, metrics = _aggregate_token_metrics(all_logits, concatenated_batch['concatenated_labels'])
-    #     chosen_soft_probs = all_soft_probs[:batch['chosen_input_ids'].shape[0]]
-    #     rejected_soft_probs = all_soft_probs[batch['chosen_input_ids'].shape[0]:]
-    #
-    #     sparsemax_label = metrics['sparsemax_label']
-    #     sparsemax_argmax = metrics['sparsemax_argmax']
-    #     sparsemax_argmax_eq1_ratio = metrics['sparsemax_argmax_eq1_ratio']
-    #     label_eq_argmax_ratio = metrics['label_eq_argmax_ratio']
-    #
-    #     chosen_sparse_probs = sparsemax_label[:batch['chosen_input_ids'].shape[0]]
-    #     rejected_sparse_probs = sparsemax_label[batch['chosen_input_ids'].shape[0]:]
-    #
-    #     chosen_sparse_argmax = sparsemax_argmax[:batch['chosen_input_ids'].shape[0]]
-    #     chosen_sparse_eq1_ratio = sparsemax_argmax_eq1_ratio[:batch['chosen_input_ids'].shape[0]]
-    #
-    #     chosen_label_eq_argmax_ratio = label_eq_argmax_ratio[:batch['chosen_input_ids'].shape[0]]
-    #
-    #     return chosen_score, rejected_score, chosen_logps, rejected_logps, chosen_soft_probs, rejected_soft_probs, chosen_sparse_probs, rejected_sparse_probs, chosen_sparse_argmax, chosen_sparse_eq1_ratio, chosen_label_eq_argmax_ratio
+        return chosen_logps, rejected_logps,zero_ratio
+    
+    def concatenated_forward_sparse(self, model: nn.Module, batch: Dict[str, Union[List, torch.LongTensor]]):
+        """Run the given model on the given batch of inputs, concatenating the chosen and rejected inputs together.
+           But change the logps into FY-loss
+        """
+        concatenated_batch = concatenated_inputs(batch)
+        all_logits = model(concatenated_batch['concatenated_input_ids'],
+                        attention_mask=concatenated_batch['concatenated_attention_mask']).logits.to(torch.float32)
+    
+        #all_logps, _ = _get_batch_logps(all_logits, concatenated_batch['concatenated_labels'], average_log_prob=False)
+        all_scores = _get_batch_fy_score(all_logits, concatenated_batch['concatenated_labels'])
+    
+        # record the logprob
+        with torch.no_grad():
+            all_logps, _ = _get_batch_logps(all_logits, concatenated_batch['concatenated_labels'],average_log_prob=False)
+        chosen_logps = all_logps[:batch['chosen_input_ids'].shape[0]]
+        rejected_logps = all_logps[batch['chosen_input_ids'].shape[0]:]
+    
+        chosen_score = all_scores[:batch['chosen_input_ids'].shape[0]]
+        rejected_score = all_scores[batch['chosen_input_ids'].shape[0]:]
+    
+        #all_soft_probs, metrics = _aggregate_token_metrics(all_logits, concatenated_batch['concatenated_labels'])
+        #chosen_soft_probs = all_soft_probs[:batch['chosen_input_ids'].shape[0]]
+        #rejected_soft_probs = all_soft_probs[batch['chosen_input_ids'].shape[0]:]
+    
+        #sparsemax_label = metrics['sparsemax_label']
+        #sparsemax_argmax = metrics['sparsemax_argmax']
+        #sparsemax_argmax_eq1_ratio = metrics['sparsemax_argmax_eq1_ratio']
+        #label_eq_argmax_ratio = metrics['label_eq_argmax_ratio']
+    
+        #chosen_sparse_probs = sparsemax_label[:batch['chosen_input_ids'].shape[0]]
+        #rejected_sparse_probs = sparsemax_label[batch['chosen_input_ids'].shape[0]:]
+    
+        #chosen_sparse_argmax = sparsemax_argmax[:batch['chosen_input_ids'].shape[0]]
+        #chosen_sparse_eq1_ratio = sparsemax_argmax_eq1_ratio[:batch['chosen_input_ids'].shape[0]]
+    
+        #chosen_label_eq_argmax_ratio = label_eq_argmax_ratio[:batch['chosen_input_ids'].shape[0]]
+    
+        #return chosen_score, rejected_score, chosen_logps, rejected_logps, chosen_soft_probs, rejected_soft_probs, chosen_sparse_probs, rejected_sparse_probs, chosen_sparse_argmax, chosen_sparse_eq1_ratio, chosen_label_eq_argmax_ratio
+        return chosen_score, rejected_score, chosen_logps, rejected_logps
 
     # def concatenated_forward_ent(self, model: nn.Module, batch: Dict[str, Union[List, torch.LongTensor]]) -> Tuple[
     #     torch.FloatTensor, torch.FloatTensor]:
@@ -689,8 +700,9 @@ class BasicTrainer(object):
         if train:
             if loss_config.name in {'dpo', 'ipo', 'masked_dpo'} and not force_sft:
                 if loss_config.name == 'masked_dpo':
-                    policy_chosen_logps, policy_rejected_logps = self.concatenated_forward_masked(
+                    policy_chosen_logps, policy_rejected_logps,zero_ratio = self.concatenated_forward_masked(
                         self.policy, batch)
+                    metrics["masked_dpo/tail_ratio"] = [zero_ratio["zero_ratio"].item()]
                 else:
                     policy_chosen_logps, policy_rejected_logps = self.concatenated_forward(
                         self.policy, batch)
@@ -726,15 +738,16 @@ class BasicTrainer(object):
                 argmax_token = np.array([-1])
 
 
-            # elif loss_config.name == "sp_dpo":
+            elif loss_config.name == "sp_dpo":
             #     (policy_chosen_score, policy_rejected_score,
             #      policy_chosen_logps, policy_rejected_logps,
             #      policy_chosen_soft_probs, policy_rejected_soft_probs,
             #      policy_chosen_sparse_probs, policy_rejected_sparse_probs,
             #      policy_chosen_sparse_argmax, policy_chosen_sparse_eq1_ratio, policy_chosen_label_eq_argmax_ratio
             #      ) = self.concatenated_forward_sparse(self.policy, batch)
-            #
-            #     with torch.no_grad():
+            #   
+                 policy_chosen_score, policy_rejected_score,policy_chosen_logps, policy_rejected_logps = self.concatenated_forward_sparse(self.policy, batch)
+                 with torch.no_grad():
             #         (reference_chosen_score, reference_rejected_score,
             #          reference_chosen_logps, reference_rejected_logps,
             #          reference_chosen_soft_probs, reference_rejected_soft_probs,
@@ -742,13 +755,13 @@ class BasicTrainer(object):
             #          reference_chosen_sparse_argmax, reference_chosen_sparse_eq1_ratio,
             #          reference_chosen_label_eq_argmax_ratio
             #          ) = self.concatenated_forward_sparse(self.reference_model, batch)
+                    reference_chosen_score, reference_rejected_score,reference_chosen_logps, reference_rejected_logps = self.concatenated_forward_sparse(self.reference_model, batch)
+                 loss_kwargs = {'beta': loss_config.beta, 'reference_free': loss_config.reference_free,
+                                'label_smoothing': loss_config.label_smoothing, 'ipo': False}
             #
-            #     loss_kwargs = {'beta': loss_config.beta, 'reference_free': loss_config.reference_free,
-            #                    'label_smoothing': loss_config.label_smoothing, 'ipo': False}
-            #
-            #     losses, chosen_rewards, rejected_rewards = preference_loss_sparse(
-            #         policy_chosen_score, policy_rejected_score, reference_chosen_score, reference_rejected_score,
-            #         **loss_kwargs)
+                 losses, chosen_rewards, rejected_rewards = preference_loss_sparse(
+                     policy_chosen_score, policy_rejected_score, reference_chosen_score, reference_rejected_score,
+                     **loss_kwargs)
             #
             #     reward_accuracies = (chosen_rewards > rejected_rewards).float()
             #
@@ -950,7 +963,7 @@ class BasicTrainer(object):
         last_log = None
         logp_npy_all = []
         argmax_npy_all = []
-        saving_epoch = 2
+        saving_epoch = 1
         # reload_ref_required = True
         for batch in self.train_iterator:
             #### BEGIN EVALUATION ####
@@ -964,10 +977,10 @@ class BasicTrainer(object):
                 # self.evaluation(prob_set='prob_test')
             #### END EVALUATION ####
             epoch = self.example_counter // 5000
-            if epoch == saving_epoch and epoch!=16:
+            if epoch == saving_epoch and epoch!=6:
                 output_dir = os.path.join(self.config.save_path)
                 self.save_pt(epoch,output_dir)
-                saving_epoch+=2
+                saving_epoch+=1
 
             #### BEGIN TRAINING ####
             self.policy.train()

@@ -5,8 +5,8 @@ MODEL="qwen18"
 #DATASET="ultrafb"
 DATASET="hh"
 SFT_EPOCHS=1
-N_EPOCHS=16
-N_EXAMPLES=80000
+N_EPOCHS=6
+N_EXAMPLES=30000
 EVAL_EVERY=100000
 DATE=$(date +%m%d)
 python -u train.py \

@@ -117,10 +117,10 @@ def main(config: DictConfig):
         #        "policy_4.pt": f"{config.exp_name}_ep4",
         #        "policy.pt":  f"{config.exp_name}_ep6"
         }
-        for i in {2,4,6,8,10,12,14}:
+        for i in {1,2,3,4,5}:
             ckpt_map[f"policy_{i}.pt"]=f"{config.exp_name}_ep{i}"
 
-        ckpt_map["policy.pt"]=f"{config.exp_name}_ep16"
+        ckpt_map["policy.pt"]=f"{config.exp_name}_ep6"
 
 
         print(ckpt_map)
