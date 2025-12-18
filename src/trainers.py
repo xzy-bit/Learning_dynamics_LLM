@@ -297,7 +297,7 @@ def _get_batch_logps_masked(
             else:
                 raise ValueError(f"Unknown mask_type: {mask_type}")
 
-        w = torch.where(tail,torch.full_like(per_token_logps, 1.0 - mask_strength),torch.ones_like(per_token_logps))
+        w = torch.where(tail,torch.full_like(per_token_logps, mask_strength),torch.ones_like(per_token_logps))
 
         per_token_logps = per_token_logps * w + per_token_logps.detach() * (1.0 - w)
 
