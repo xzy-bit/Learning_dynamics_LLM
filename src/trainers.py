@@ -265,7 +265,8 @@ def _get_batch_logps_masked(
     per_token_logps = torch.gather(logprob_logits, dim=2, index=labels.unsqueeze(2)).squeeze(2) # [B, M]
 
     zero_ratio = None
-
+    sparsemax_rank_mean = None
+    sparsemax_rank_ratio_mean = None
     if masked:
         with torch.no_grad():
             prob_logits = logits.softmax(-1)     # [B, M, V]
@@ -274,6 +275,14 @@ def _get_batch_logps_masked(
                 sparsemax_logits = sparsemax(logits, dim=-1)
                 per_token_sparsemax = torch.gather(sparsemax_logits, dim=2, index=labels.unsqueeze(2)).squeeze(2)
                 tail = (per_token_sparsemax == 0)    # bool
+                # ===== NEW: rank in original softmax =====
+                # rank = 1 + number of tokens with prob > p(label)
+                rank = (prob_logits > label_prob.unsqueeze(-1)).sum(dim=-1) + 1  # [B, M]
+                V = prob_logits.shape[-1]
+                rank_ratio = rank.float() / V       # ∈ (0,1]
+                
+                sparsemax_rank_mean = rank[tail].float().mean()
+                sparsemax_rank_ratio_mean = rank_ratio[tail].mean()
 
             elif mask_type == "ratio":
                 # rank = number of probs >= p(label)
@@ -294,13 +303,16 @@ def _get_batch_logps_masked(
 
         valid_mask = loss_mask.bool()
         zero_ratio = (tail & valid_mask).sum().float() / (valid_mask.sum().float() + 1e-8)
-
+    
     per_token_logps = per_token_logps * loss_mask
     out_token = per_token_logps.sum(-1)      # [B]
 
     return out_token, {
-        "zero_ratio": zero_ratio.detach() if zero_ratio is not None else None
-    }
+        "zero_ratio": zero_ratio.detach() if zero_ratio is not None else None,
+        "rank":
+            sparsemax_rank_mean.detach() if sparsemax_rank_mean is not None else None,
+        "rank_ratio":
+            sparsemax_rank_ratio_mean.detach() if sparsemax_rank_ratio_mean is not None else None}
 
 @torch.no_grad()
 def _aggregate_token_metrics(logits: torch.FloatTensor,
@@ -671,6 +683,9 @@ class BasicTrainer(object):
                             mask_top_k=loss_config.mask_top_k,mask_strength=loss_config.mask_strength
                         )
                         metrics["masked_dpo/tail_ratio"] = [zero_ratio["zero_ratio"].item()]
+                        if loss_config.mask_type=="sparsemax":
+                            metrics["masked_dpo/rank_ratio"] = [zero_ratio["rank_ratio"]]
+                            metrics["masked_dpo/rank"] = [zero_ratio["rank"]]
                     elif loss_config.name == 'dpo' or loss_config.name == 'ipo':
                         policy_chosen_score, policy_rejected_score = self.concatenated_forward(
                             self.policy, batch)

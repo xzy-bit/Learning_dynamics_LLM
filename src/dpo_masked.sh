@@ -1,4 +1,4 @@
-export CUDA_VISIBLE_DEVICES=3
+export CUDA_VISIBLE_DEVICES=2
 export CUDA_LAUNCH_BLOCKING=1
 #MODEL="pythia410m"
 MODEL="qwen18"
@@ -10,11 +10,11 @@ N_EXAMPLES=20000
 EVAL_EVERY=100000
 DATE=$(date +%m%d)
 # sparsemax, ratio, topk
-#MASK_TYPE="sparsemax"
+MASK_TYPE="sparsemax"
 #MASK_TYPE="ratio"
-MASK_TYPE="topk"
+#MASK_TYPE="topk"
 MASK_RATIO=0.1
-MASK_TOP_K=50
+MASK_TOP_K=3
 MASK_STRENGTH=0.0
 
 python -u train.py \
