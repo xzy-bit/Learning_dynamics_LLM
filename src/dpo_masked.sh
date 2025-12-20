@@ -17,7 +17,7 @@ MASK_TYPE="hard_threshold"
 MASK_RATIO=0.9
 MASK_TOP_K=50
 MASK_STRENGTH=0.0
-MASK_THRESHOLD_PROB=0.2
+MASK_THRESHOLD_PROB=0.01
 
 python -u train.py \
     loss=masked_dpo \

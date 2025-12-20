@@ -10,7 +10,7 @@ N_EXAMPLES=20000
 EVAL_EVERY=40000
 DATE=$(date +%m%d)
 ALPHA=1.5
-ENT_BETA=0.5
+ENT_BETA=1.0
 python -u train.py \
     loss=ent_dpo \
     loss.beta=0.1 \
