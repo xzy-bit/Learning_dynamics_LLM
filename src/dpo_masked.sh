@@ -1,4 +1,4 @@
-export CUDA_VISIBLE_DEVICES=3
+export CUDA_VISIBLE_DEVICES=1
 export CUDA_LAUNCH_BLOCKING=1
 #MODEL="pythia410m"
 MODEL="qwen18"
@@ -17,7 +17,7 @@ MASK_TYPE="hard_threshold"
 MASK_RATIO=0.9
 MASK_TOP_K=50
 MASK_STRENGTH=0.0
-MASK_THRESHOLD_PROB=0.1
+MASK_THRESHOLD_PROB=0.2
 
 python -u train.py \
     loss=masked_dpo \
@@ -26,10 +26,10 @@ python -u train.py \
     loss.mask_ratio=$MASK_RATIO\
     loss.mask_top_k=$MASK_TOP_K\
     loss.mask_strength=$MASK_STRENGTH\
-    loss.mask_threshold_prob=$MASK_THRESHOLD_PROB$
+    loss.mask_threshold_prob=$MASK_THRESHOLD_PROB\
     datasets=$DATASET \
     model=$MODEL \
-    exp_name="dpo_mask_${MASK_TYPE}_r_${MASK_RATIO}_k_${MASK_TOP_K}_s_${MASK_STRENGTH}_${MODEL}_${DATASET}_ep${N_EPOCHS}_${DATE}"\
+    exp_name="dpo_mask_${MASK_TYPE}_r_${MASK_RATIO}_k_${MASK_TOP_K}_s_${MASK_STRENGTH}_t_${MASK_THRESHOLD_PROB}_${MODEL}_${DATASET}_ep${N_EPOCHS}_${DATE}"\
     trainer=BasicTrainer \
     n_epochs=$N_EPOCHS \
     n_examples=$N_EXAMPLES \

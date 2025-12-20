@@ -1,12 +1,12 @@
-export CUDA_VISIBLE_DEVICES=0
+export CUDA_VISIBLE_DEVICES=2
 export CUDA_LAUNCH_BLOCKING=1
 #MODEL="pythia410m"
 MODEL="qwen18"
 #DATASET="ultrafb"
 DATASET="hh"
 SFT_EPOCHS=2
-N_EPOCHS=6
-N_EXAMPLES=30000
+N_EPOCHS=4
+N_EXAMPLES=20000
 EVAL_EVERY=40000
 DATE=$(date +%m%d)
 ALPHA=1.5
@@ -18,7 +18,7 @@ python -u train.py \
     loss.ent_beta=$ENT_BETA\
     datasets=$DATASET \
     model=$MODEL \
-    exp_name="dpo_entmax_${ALPHA}_${MODEL}_${DATASET}_ep${N_EPOCHS}_${DATE}"\
+    exp_name="dpo_entmax_${ALPHA}_beta_${ENT_BETA}_${MODEL}_${DATASET}_ep${N_EPOCHS}_${DATE}"\
     trainer=BasicTrainer \
     n_epochs=$N_EPOCHS \
     n_examples=$N_EXAMPLES \
