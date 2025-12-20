@@ -12,10 +12,12 @@ DATE=$(date +%m%d)
 # sparsemax, ratio, topk
 #MASK_TYPE="sparsemax"
 #MASK_TYPE="ratio"
-MASK_TYPE="topk"
+#MASK_TYPE="topk"
+MASK_TYPE="hard_threshold"
 MASK_RATIO=0.9
 MASK_TOP_K=50
 MASK_STRENGTH=0.0
+MASK_THRESHOLD_PROB=0.1
 
 python -u train.py \
     loss=masked_dpo \
@@ -24,6 +26,7 @@ python -u train.py \
     loss.mask_ratio=$MASK_RATIO\
     loss.mask_top_k=$MASK_TOP_K\
     loss.mask_strength=$MASK_STRENGTH\
+    loss.mask_threshold_prob=$MASK_THRESHOLD_PROB$
     datasets=$DATASET \
     model=$MODEL \
     exp_name="dpo_mask_${MASK_TYPE}_r_${MASK_RATIO}_k_${MASK_TOP_K}_s_${MASK_STRENGTH}_${MODEL}_${DATASET}_ep${N_EPOCHS}_${DATE}"\

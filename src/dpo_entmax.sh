@@ -10,10 +10,12 @@ N_EXAMPLES=30000
 EVAL_EVERY=40000
 DATE=$(date +%m%d)
 ALPHA=1.5
+ENT_BETA=0.5
 python -u train.py \
     loss=ent_dpo \
     loss.beta=0.1 \
     loss.alpha=$ALPHA \
+    loss.ent_beta=$ENT_BETA\
     datasets=$DATASET \
     model=$MODEL \
     exp_name="dpo_entmax_${ALPHA}_${MODEL}_${DATASET}_ep${N_EPOCHS}_${DATE}"\

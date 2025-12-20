@@ -5,7 +5,7 @@ import torch.nn.functional as F
 import torch.nn as nn
 import transformers
 from omegaconf import DictConfig
-from entmax import sparsemax_loss, sparsemax, entmax_bisect_loss
+from entmax import sparsemax_loss, sparsemax, entmax_bisect_loss,entmax15
 import torch.distributed as dist
 from torch.distributed.fsdp import (
     FullyShardedDataParallel as FSDP,
@@ -208,6 +208,8 @@ def _get_batch_ent_score(
         logits: torch.FloatTensor,
         labels: torch.LongTensor,
         alpha: float = 1.5,
+        beta:float = 0.5,
+        ispos: bool = False,
         average_log_prob: bool = False
 ):
     """
@@ -230,8 +232,24 @@ def _get_batch_ent_score(
     # reshape back to [B, M-1]
     token_loss = flat_loss.view(B, M - 1)
 
+    ns_loss = 0.0
+    if ispos and alpha == 1.5:
+        entmax_probs = entmax15(flat_logits, dim=-1)
+        softmax_probs = F.softmax(flat_logits, dim=-1)
+
+        # one-hot label mask
+        one_hot = F.one_hot(flat_labels, num_classes=softmax_probs.size(-1)).bool()
+
+        # tail support excluding label
+        tail_mask = (entmax_probs==0.0)&(~one_hot)
+
+        suppressed_mass = (softmax_probs * tail_mask.float()).sum(dim=-1)
+        suppressed_mass = torch.clamp(suppressed_mass, max = 0.99)
+
+        ns_loss = -torch.log(1.0 - suppressed_mass)
+
     # apply mask
-    token_loss = token_loss * mask
+    token_loss = (token_loss + beta*ns_loss) * mask
 
     # sum over valid tokens
     # out_token  = (per_token_logps * loss_mask).sum(-1)  #[B, 1]
@@ -247,6 +265,7 @@ def _get_batch_logps_masked(
         mask_ratio: float = 0.5,        # for quantile: e.g. 0.5 / 0.9
         topk: int = 50,                 # for topk
         mask_strength: float = 0.0,     # λ in gradient scaling
+        threshold_prob: float = None
 ):
     """
     Returns:
@@ -294,6 +313,8 @@ def _get_batch_logps_masked(
                 topk_vals, _ = prob_logits.topk(topk, dim=-1)  # [B, M, K]
                 kth_val = topk_vals[..., -1]                   # [B, M]
                 tail = label_prob < kth_val
+            elif mask_type == "hard_threshold":
+                tail = label_prob < threshold_prob
             else:
                 raise ValueError(f"Unknown mask_type: {mask_type}")
 
@@ -576,7 +597,7 @@ class BasicTrainer(object):
         rejected_logps = all_logps[batch['chosen_input_ids'].shape[0]:]
         return chosen_logps, rejected_logps
 
-    def concatenated_forward_masked(self, model: nn.Module, batch: Dict[str, Union[List, torch.LongTensor]],mask_type:str,mask_ratio:float,mask_top_k:int,mask_strength:float):
+    def concatenated_forward_masked(self, model: nn.Module, batch: Dict[str, Union[List, torch.LongTensor]],mask_type:str,mask_ratio:float,mask_top_k:int,mask_strength:float,mask_threshold_prob:float):
         concatenated_batch = concatenated_inputs(batch)
         all_logits = model(concatenated_batch['concatenated_input_ids'],
                            attention_mask=concatenated_batch['concatenated_attention_mask']).logits.to(torch.float32)
@@ -587,7 +608,7 @@ class BasicTrainer(object):
         rejected_labels = concatenated_batch['concatenated_labels'][batch['chosen_input_ids'].shape[0]:]
 
         chosen_logps,_ = _get_batch_logps_masked(chosen_logis, chosen_labels, masked=False)
-        rejected_logps,zero_ratio = _get_batch_logps_masked(rejected_logits, rejected_labels, masked=True,mask_type=mask_type,mask_ratio=mask_ratio,topk=mask_top_k,mask_strength=mask_strength)
+        rejected_logps,zero_ratio = _get_batch_logps_masked(rejected_logits, rejected_labels, masked=True,mask_type=mask_type,mask_ratio=mask_ratio,topk=mask_top_k,mask_strength=mask_strength,threshold_prob=mask_threshold_prob)
 
         return chosen_logps, rejected_logps,zero_ratio
     
@@ -631,22 +652,34 @@ class BasicTrainer(object):
         #return chosen_score, rejected_score, chosen_logps, rejected_logps, chosen_soft_probs, rejected_soft_probs, chosen_sparse_probs, rejected_sparse_probs, chosen_sparse_argmax, chosen_sparse_eq1_ratio, chosen_label_eq_argmax_ratio
         return chosen_score, rejected_score, chosen_logps, rejected_logps
 
-    def concatenated_forward_ent(self, model: nn.Module, batch: Dict[str, Union[List, torch.LongTensor]],alpha):
+    def concatenated_forward_ent(self, model: nn.Module, batch: Dict[str, Union[List, torch.LongTensor]],alpha,beta):
          """Run the given model on the given batch of inputs, concatenating the chosen and rejected inputs together.
             But change the logps into FY-loss
          """
          concatenated_batch = concatenated_inputs(batch)
          all_logits = model(concatenated_batch['concatenated_input_ids'],
                             attention_mask=concatenated_batch['concatenated_attention_mask']).logits.to(torch.float32)
-         all_scores = _get_batch_ent_score(all_logits, concatenated_batch['concatenated_labels'],alpha=alpha)
+
+         chosen_logis = all_logits[:batch['chosen_input_ids'].shape[0]]
+         chosen_labels = concatenated_batch['concatenated_labels'][:batch['chosen_input_ids'].shape[0]]
+
+         rejected_logits = all_logits[batch['chosen_input_ids'].shape[0]:]
+         rejected_labels = concatenated_batch['concatenated_labels'][batch['chosen_input_ids'].shape[0]:]
+
+         chosen_score = _get_batch_ent_score(chosen_logis, chosen_labels, alpha=alpha,beta=beta,ispos=True)
+         rejected_score = _get_batch_ent_score(rejected_logits, rejected_labels, alpha=alpha,beta=beta,ispos=False)
+
+         # all_scores = _get_batch_ent_score(all_logits, concatenated_batch['concatenated_labels'],alpha=alpha)
+         # chosen_score = all_scores[:batch['chosen_input_ids'].shape[0]]
+         # rejected_score = all_scores[batch['chosen_input_ids'].shape[0]:]
+
          with torch.no_grad():
              all_logps, _ = _get_batch_logps(all_logits, concatenated_batch['concatenated_labels'],
                                              average_log_prob=False)
          chosen_logps = all_logps[:batch['chosen_input_ids'].shape[0]]
          rejected_logps = all_logps[batch['chosen_input_ids'].shape[0]:]
 
-         chosen_score = all_scores[:batch['chosen_input_ids'].shape[0]]
-         rejected_score = all_scores[batch['chosen_input_ids'].shape[0]:]
+
          return chosen_score, rejected_score, chosen_logps, rejected_logps
 
     def get_batch_metrics(
@@ -680,7 +713,7 @@ class BasicTrainer(object):
                     if loss_config.name == 'masked_dpo':
                         policy_chosen_score, policy_rejected_score,zero_ratio = self.concatenated_forward_masked(
                             self.policy, batch,mask_type=loss_config.mask_type,mask_ratio=loss_config.mask_ratio,
-                            mask_top_k=loss_config.mask_top_k,mask_strength=loss_config.mask_strength
+                            mask_top_k=loss_config.mask_top_k,mask_strength=loss_config.mask_strength,mask_threshold_prob=loss_config.mask_threshold_prob
                         )
                         metrics["masked_dpo/tail_ratio"] = [zero_ratio["zero_ratio"].item()]
                         if loss_config.mask_type=="sparsemax":
@@ -702,10 +735,11 @@ class BasicTrainer(object):
                                 self.reference_model, batch)
                     else:
                         alpha = loss_config.alpha
-                        policy_chosen_score, policy_rejected_score, policy_chosen_logps, policy_rejected_logps = self.concatenated_forward_ent(self.policy, batch,alpha)
+                        beta = loss_config.ent_beta
+                        policy_chosen_score, policy_rejected_score, policy_chosen_logps, policy_rejected_logps = self.concatenated_forward_ent(self.policy, batch,alpha,beta)
                         with torch.no_grad():
                             reference_chosen_score, reference_rejected_score,_,_ = self.concatenated_forward_ent(
-                                self.reference_model, batch,alpha)
+                                self.reference_model, batch,alpha,beta)
 
                 if loss_config.name in {'dpo', 'masked_dpo','sp_dpo','ent_dpo'}:
                     loss_kwargs = {'beta': loss_config.beta, 'reference_free': loss_config.reference_free,
