@@ -1,5 +1,5 @@
 # do DPO preference-based training
-name: dpo
+name: ent_dpo
 
 # the temperature parameter for DPO; lower values mean we care less about
 #   the reference model
@@ -14,3 +14,4 @@ label_smoothing: 0
 reference_free: false
 alpha: 1.5
 ent_beta: 0.5
+using_ns: false

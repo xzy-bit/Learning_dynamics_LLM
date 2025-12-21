@@ -78,7 +78,7 @@ n_epochs: 1
 n_examples: 5000
 
 # the number of examples to evaluate on (and sample from, if sample_during_eval is true)
-n_eval_examples: 100
+n_eval_examples: 10
 
 # the trainer class to use (e.g. BasicTrainer, FSDPTrainer, TensorParallelTrainer)
 trainer: BasicTrainer

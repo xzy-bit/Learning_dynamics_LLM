@@ -14,7 +14,7 @@ python -u train.py \
     loss.beta=0.1 \
     datasets=$DATASET \
     model=$MODEL \
-    exp_name="dpo_sparse_${MODEL}_${DATASET}_ep${N_EPOCHS}_${DATE}"\
+    exp_name="dpo_debug_sparse_${MODEL}_${DATASET}_ep${N_EPOCHS}_${DATE}"\
     trainer=BasicTrainer \
     n_epochs=$N_EPOCHS \
     n_examples=$N_EXAMPLES \

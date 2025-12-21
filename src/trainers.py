@@ -210,7 +210,7 @@ def _get_batch_ent_score(
         alpha: float = 1.5,
         beta:float = 0.5,
         ispos: bool = False,
-        average_log_prob: bool = False
+        using_ns: bool = False,
 ):
     """
     Compute sequence-level Fenchel–Young (sparsemax) scores for each example.
@@ -232,8 +232,7 @@ def _get_batch_ent_score(
     # reshape back to [B, M-1]
     token_loss = flat_loss.view(B, M - 1)
 
-    ns_loss = 0.0
-    if ispos and alpha == 1.5:
+    if ispos and using_ns:
         entmax_probs = entmax15(flat_logits, dim=-1)
         softmax_probs = F.softmax(flat_logits, dim=-1)
 
@@ -245,11 +244,12 @@ def _get_batch_ent_score(
 
         suppressed_mass = (softmax_probs * tail_mask.float()).sum(dim=-1)
         suppressed_mass = torch.clamp(suppressed_mass, max = 0.99)
-
+        
         ns_loss = -torch.log(1.0 - suppressed_mass)
+        ns_loss = ns_loss.view(B, M-1)
+        token_loss = token_loss + beta * ns_loss - beta*ns_loss.detach()
 
-    # apply mask
-    token_loss = (token_loss + beta*ns_loss) * mask
+    token_loss = token_loss * mask
 
     # sum over valid tokens
     # out_token  = (per_token_logps * loss_mask).sum(-1)  #[B, 1]
@@ -652,7 +652,7 @@ class BasicTrainer(object):
         #return chosen_score, rejected_score, chosen_logps, rejected_logps, chosen_soft_probs, rejected_soft_probs, chosen_sparse_probs, rejected_sparse_probs, chosen_sparse_argmax, chosen_sparse_eq1_ratio, chosen_label_eq_argmax_ratio
         return chosen_score, rejected_score, chosen_logps, rejected_logps
 
-    def concatenated_forward_ent(self, model: nn.Module, batch: Dict[str, Union[List, torch.LongTensor]],alpha,beta):
+    def concatenated_forward_ent(self, model: nn.Module, batch: Dict[str, Union[List, torch.LongTensor]],alpha,beta,using_ns):
          """Run the given model on the given batch of inputs, concatenating the chosen and rejected inputs together.
             But change the logps into FY-loss
          """
@@ -666,8 +666,8 @@ class BasicTrainer(object):
          rejected_logits = all_logits[batch['chosen_input_ids'].shape[0]:]
          rejected_labels = concatenated_batch['concatenated_labels'][batch['chosen_input_ids'].shape[0]:]
 
-         chosen_score = _get_batch_ent_score(chosen_logis, chosen_labels, alpha=alpha,beta=beta,ispos=True)
-         rejected_score = _get_batch_ent_score(rejected_logits, rejected_labels, alpha=alpha,beta=beta,ispos=False)
+         chosen_score = _get_batch_ent_score(chosen_logis, chosen_labels, alpha=alpha,beta=beta,ispos=True,using_ns=using_ns)
+         rejected_score = _get_batch_ent_score(rejected_logits, rejected_labels, alpha=alpha,beta=beta,ispos=False,using_ns=using_ns)
 
          # all_scores = _get_batch_ent_score(all_logits, concatenated_batch['concatenated_labels'],alpha=alpha)
          # chosen_score = all_scores[:batch['chosen_input_ids'].shape[0]]
@@ -708,6 +708,8 @@ class BasicTrainer(object):
             chosen = self.config.train_supervise
         argmax_token = np.array([0])  # dummy variable for the stupid bug, ugly but useful!!!
         if train:
+            print("==============================================================")
+            print(loss_config.name)
             if loss_config.name in {'dpo', 'ipo', 'masked_dpo','sp_dpo','ent_dpo'} and not force_sft:
                 if loss_config.name == 'masked_dpo' or loss_config.name == 'dpo' or loss_config.name == 'ipo':
                     if loss_config.name == 'masked_dpo':
@@ -736,10 +738,11 @@ class BasicTrainer(object):
                     else:
                         alpha = loss_config.alpha
                         beta = loss_config.ent_beta
-                        policy_chosen_score, policy_rejected_score, policy_chosen_logps, policy_rejected_logps = self.concatenated_forward_ent(self.policy, batch,alpha,beta)
+                        using_ns = loss_config.using_ns
+                        policy_chosen_score, policy_rejected_score, policy_chosen_logps, policy_rejected_logps = self.concatenated_forward_ent(self.policy, batch,alpha,beta,using_ns)
                         with torch.no_grad():
                             reference_chosen_score, reference_rejected_score,_,_ = self.concatenated_forward_ent(
-                                self.reference_model, batch,alpha,beta)
+                                self.reference_model, batch,alpha,beta,using_ns)
 
                 if loss_config.name in {'dpo', 'masked_dpo','sp_dpo','ent_dpo'}:
                     loss_kwargs = {'beta': loss_config.beta, 'reference_free': loss_config.reference_free,
