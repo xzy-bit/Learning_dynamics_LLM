@@ -5,14 +5,14 @@ MODEL="qwen18"
 #DATASET="ultrafb"
 DATASET="hh"
 SFT_EPOCHS=2
-N_EPOCHS=2
-N_EXAMPLES=10000
+N_EPOCHS=6
+N_EXAMPLES=30000
 EVAL_EVERY=40000
 DATE=$(date +%m%d)
 ALPHA=1.5
 ENT_BETA=1.0
-#USING_NS=false
-USING_NS=true
+USING_NS=false
+#USING_NS=true
 python -u train.py \
     loss=ent_dpo \
     loss.beta=0.1 \
@@ -21,7 +21,7 @@ python -u train.py \
     loss.using_ns=$USING_NS\
     datasets=$DATASET \
     model=$MODEL \
-    exp_name="dpo_entmax_debug_${ALPHA}_beta_${ENT_BETA}_usingNs_${USING_NS}_${MODEL}_${DATASET}_ep${N_EPOCHS}_${DATE}"\
+    exp_name="dpo_entmax_${ALPHA}_beta_${ENT_BETA}_usingNs_${USING_NS}_${MODEL}_${DATASET}_ep${N_EPOCHS}_${DATE}"\
     trainer=BasicTrainer \
     n_epochs=$N_EPOCHS \
     n_examples=$N_EXAMPLES \

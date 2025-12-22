@@ -1,4 +1,4 @@
-export CUDA_VISIBLE_DEVICES=1
+export CUDA_VISIBLE_DEVICES=2
 export CUDA_LAUNCH_BLOCKING=1
 #MODEL="pythia410m"
 MODEL="qwen18"
@@ -6,8 +6,8 @@ MODEL="qwen18"
 DATASET="hh"
 SFT_EPOCHS=2
 N_EPOCHS=6
-EVAL_EVERY=80000
 N_EXAMPLES=30000
+EVAL_EVERY=80000
 DATE=$(date +%m%d)
 python -u train.py \
     loss=dpo \

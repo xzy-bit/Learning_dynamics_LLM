@@ -5,8 +5,8 @@ MODEL="qwen18"
 #DATASET="ultrafb"
 DATASET="hh"
 SFT_EPOCHS=2
-N_EPOCHS=4
-N_EXAMPLES=20000
+N_EPOCHS=6
+N_EXAMPLES=30000
 EVAL_EVERY=40000
 DATE=$(date +%m%d)
 python -u train.py \
@@ -14,7 +14,7 @@ python -u train.py \
     loss.beta=0.1 \
     datasets=$DATASET \
     model=$MODEL \
-    exp_name="dpo_debug_sparse_${MODEL}_${DATASET}_ep${N_EPOCHS}_${DATE}"\
+    exp_name="dpo_sparse_${MODEL}_${DATASET}_ep${N_EPOCHS}_${DATE}"\
     trainer=BasicTrainer \
     n_epochs=$N_EPOCHS \
     n_examples=$N_EXAMPLES \
