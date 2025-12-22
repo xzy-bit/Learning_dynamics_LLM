@@ -89,6 +89,50 @@ def preference_loss(policy_chosen_logps: torch.FloatTensor,
     sigma_m = torch.sigmoid(beta * logits).detach()
     return losses, chosen_rewards, rejected_rewards, sigma_m
 
+def asymmetric_preference_loss(policy_chosen_logps: torch.FloatTensor,
+                    policy_rejected_logps: torch.FloatTensor,
+                    reference_chosen_logps: torch.FloatTensor,
+                    reference_rejected_logps: torch.FloatTensor,
+                    beta: float,
+                    label_smoothing: float = 0.0,
+                    ipo: bool = False,
+                    reference_free: bool = False):
+    p_r = policy_rejected_logps.exp()
+    tau = 0.05
+    gate = ((1.0 - p_r) / tau).clamp(max=1.0)
+    gate = gate.detach()
+
+    # ========== rejected gradient source ==========
+    neglog1mp = -torch.log1p(-p_r.clamp(max=1 - 1e-6))
+
+    # ========== gradient replacement ==========
+    policy_rejected_score = (
+            policy_rejected_logps.detach()
+            + (gate * neglog1mp - (gate * neglog1mp).detach())
+    )
+
+    pi_logratios = policy_chosen_logps - policy_rejected_score
+    ref_logratios = reference_chosen_logps - reference_rejected_logps
+
+    if reference_free:
+        ref_logratios = 0
+
+    logits = pi_logratios - ref_logratios  # also known as h_{\pi_\theta}^{y_w,y_l}
+
+    if ipo:
+        losses = (logits - 1 / (2 * beta)) ** 2  # Eq. 17 of https://arxiv.org/pdf/2310.12036v2.pdf
+    else:
+        # Eq. 3 https://ericmitchell.ai/cdpo.pdf; label_smoothing=0 gives original DPO (Eq. 7 of https://arxiv.org/pdf/2305.18290.pdf)
+        losses = -F.logsigmoid(beta * logits) * (1 - label_smoothing) - F.logsigmoid(-beta * logits) * label_smoothing
+
+    chosen_rewards = beta * (policy_chosen_logps - reference_chosen_logps).detach()
+    rejected_rewards = beta * (policy_rejected_logps - reference_rejected_logps).detach()
+
+    sigma_m = torch.sigmoid(beta * logits).detach()
+    print("==================Using Asymmetric Preference Loss==================")
+
+    return losses, chosen_rewards, rejected_rewards, sigma_m
+
 def _get_batch_logps(logits: torch.FloatTensor, labels: torch.LongTensor,
                      average_log_prob: bool = False) -> torch.FloatTensor:
     """Compute the log probabilities of the given labels under the given logits.
@@ -557,7 +601,7 @@ class BasicTrainer(object):
                 pad_token_id=self.tokenizer.pad_token_id
             )
 
-        if self.config.loss.name in {'dpo', 'ipo', 'sp_dpo', 'masked_dpo','ent_dpo'}:
+        if self.config.loss.name in {'dpo', 'ipo', 'sp_dpo', 'masked_dpo','ent_dpo','asym_dpo'}:
             ctx = lambda: (FSDP.summon_full_params(self.reference_model, writeback=False,
                                                    recurse=False) if 'FSDP' in self.config.trainer else contextlib.nullcontext())
             with ctx():
@@ -575,7 +619,7 @@ class BasicTrainer(object):
             policy_output, skip_special_tokens=True
         )
 
-        if self.config.loss.name in {'dpo', 'ipo', 'sp_dpo', 'masked_dpo','ent_dpo'}:
+        if self.config.loss.name in {'dpo', 'ipo', 'sp_dpo', 'masked_dpo','ent_dpo','asym_dpo'}:
             reference_output = pad_to_length(reference_output, self.config.max_length, self.tokenizer.pad_token_id)
             reference_output = all_gather_if_needed(reference_output, self.rank, self.world_size)
             reference_output_decoded = self.tokenizer.batch_decode(reference_output, skip_special_tokens=True)
@@ -710,7 +754,7 @@ class BasicTrainer(object):
         if train:
             print("==============================================================")
             print(loss_config.name)
-            if loss_config.name in {'dpo', 'ipo', 'masked_dpo','sp_dpo','ent_dpo'} and not force_sft:
+            if loss_config.name in {'dpo', 'ipo', 'masked_dpo','sp_dpo','ent_dpo','asym_dpo'} and not force_sft:
                 if loss_config.name == 'masked_dpo' or loss_config.name == 'dpo' or loss_config.name == 'ipo':
                     if loss_config.name == 'masked_dpo':
                         policy_chosen_score, policy_rejected_score,zero_ratio = self.concatenated_forward_masked(
@@ -721,7 +765,7 @@ class BasicTrainer(object):
                         if loss_config.mask_type=="sparsemax":
                             metrics["masked_dpo/rank_ratio"] = [zero_ratio["rank_ratio"]]
                             metrics["masked_dpo/rank"] = [zero_ratio["rank"]]
-                    elif loss_config.name == 'dpo' or loss_config.name == 'ipo':
+                    elif loss_config.name == 'dpo' or loss_config.name == 'ipo' or loss_config.name == 'asym_dpo':
                         policy_chosen_score, policy_rejected_score = self.concatenated_forward(
                             self.policy, batch)
                     with torch.no_grad():
@@ -744,7 +788,7 @@ class BasicTrainer(object):
                             reference_chosen_score, reference_rejected_score,_,_ = self.concatenated_forward_ent(
                                 self.reference_model, batch,alpha,beta,using_ns)
 
-                if loss_config.name in {'dpo', 'masked_dpo','sp_dpo','ent_dpo'}:
+                if loss_config.name in {'dpo', 'masked_dpo','sp_dpo','ent_dpo','asym_dpo'}:
                     loss_kwargs = {'beta': loss_config.beta, 'reference_free': loss_config.reference_free,
                                    'label_smoothing': loss_config.label_smoothing, 'ipo': False}
                 elif loss_config.name == 'ipo':
@@ -752,9 +796,13 @@ class BasicTrainer(object):
                 else:
                     raise ValueError(f'unknown loss {loss_config.name}')
 
-                losses, chosen_rewards, rejected_rewards,sigma_m = preference_loss(
-                    policy_chosen_score, policy_rejected_score, reference_chosen_score, reference_rejected_score,
-                    **loss_kwargs)
+                if loss_config.name=='asym_dpo':
+                    losses, chosen_rewards, rejected_rewards, sigma_m = asymmetric_preference_loss(
+                        policy_chosen_score, policy_rejected_score, reference_chosen_score, reference_rejected_score,**loss_kwargs)
+                else:
+                    losses, chosen_rewards, rejected_rewards,sigma_m = preference_loss(
+                        policy_chosen_score, policy_rejected_score, reference_chosen_score, reference_rejected_score,
+                        **loss_kwargs)
 
                 reward_accuracies = (chosen_rewards > rejected_rewards).float()
 
@@ -958,7 +1006,7 @@ class BasicTrainer(object):
         np.random.seed(self.seed)
         random.seed(self.seed)
 
-        if self.config.loss.name in {'dpo', 'ipo', 'sp_dpo', 'masked_dpo','ent_dpo'}:
+        if self.config.loss.name in {'dpo', 'ipo', 'sp_dpo', 'masked_dpo','ent_dpo','asym_dpo'}:
             self.reference_model.eval()
 
         self.example_counter = 0
@@ -1222,7 +1270,7 @@ class FSDPTrainer(BasicTrainer):
                 )
                 rank0_print('FSDP activation checkpointing enabled!')
 
-        if config.loss.name in {'dpo', 'ipo', 'sp_dpo', 'masked_dpo','ent_dpo'}:
+        if config.loss.name in {'dpo', 'ipo', 'sp_dpo', 'masked_dpo','ent_dpo','asym_dpo'}:
             rank0_print('Sharding reference model...')
             self.reference_model = FSDP(reference_model, **shared_fsdp_kwargs)
 
@@ -1303,7 +1351,7 @@ class TensorParallelTrainer(BasicTrainer):
 
         rank0_print('Sharding policy...')
         self.policy = tp.tensor_parallel(policy, sharded=True)
-        if config.loss.name in {'dpo', 'ipo', 'sp_dpo', 'masked_dpo','ent_dpo'}:
+        if config.loss.name in {'dpo', 'ipo', 'sp_dpo', 'masked_dpo','ent_dpo','asym_dpo'}:
             rank0_print('Sharding reference model...')
             self.reference_model = tp.tensor_parallel(
                 reference_model, sharded=False
