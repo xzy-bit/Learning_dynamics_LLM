@@ -98,9 +98,11 @@ def asymmetric_preference_loss(policy_chosen_logps: torch.FloatTensor,
                     ipo: bool = False,
                     reference_free: bool = False):
     p_r = policy_rejected_logps.exp()
-    tau = 0.05
-    gate = ((1.0 - p_r) / tau).clamp(max=1.0)
-    gate = gate.detach()
+    
+    #tau = 0.05
+    #gate = ((1.0 - p_r) / tau).clamp(max=1.0)
+    #gate = gate.detach()
+    gate=1.0
 
     # ========== rejected gradient source ==========
     neglog1mp = -torch.log1p(-p_r.clamp(max=1 - 1e-6))
@@ -361,10 +363,23 @@ def _get_batch_logps_masked(
                 tail = label_prob < threshold_prob
             else:
                 raise ValueError(f"Unknown mask_type: {mask_type}")
+        if mask_type == "hard_threshold":
+            eps = 1e-6
+            p = label_prob.clamp(min=eps, max=1 - eps)
+            log1mp = torch.log1p(-p)
+            
+            per_token_logps = torch.where(
+                tail,
+                per_token_logps.detach()
+                + log1mp.detach()
+                - log1mp,
+                per_token_logps
+                )
+            print("==========Using -log(1-p)=============")
+        else:
+            w = torch.where(tail,torch.full_like(per_token_logps, mask_strength),torch.ones_like(per_token_logps))
 
-        w = torch.where(tail,torch.full_like(per_token_logps, mask_strength),torch.ones_like(per_token_logps))
-
-        per_token_logps = per_token_logps * w + per_token_logps.detach() * (1.0 - w)
+            per_token_logps = per_token_logps * w + per_token_logps.detach() * (1.0 - w)
 
         valid_mask = loss_mask.bool()
         zero_ratio = (tail & valid_mask).sum().float() / (valid_mask.sum().float() + 1e-8)
@@ -755,7 +770,7 @@ class BasicTrainer(object):
             print("==============================================================")
             print(loss_config.name)
             if loss_config.name in {'dpo', 'ipo', 'masked_dpo','sp_dpo','ent_dpo','asym_dpo'} and not force_sft:
-                if loss_config.name == 'masked_dpo' or loss_config.name == 'dpo' or loss_config.name == 'ipo':
+                if loss_config.name == 'masked_dpo' or loss_config.name == 'dpo' or loss_config.name == 'ipo' or loss_config.name=='asym_dpo':
                     if loss_config.name == 'masked_dpo':
                         policy_chosen_score, policy_rejected_score,zero_ratio = self.concatenated_forward_masked(
                             self.policy, batch,mask_type=loss_config.mask_type,mask_ratio=loss_config.mask_ratio,

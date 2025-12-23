@@ -1,12 +1,12 @@
-export CUDA_VISIBLE_DEVICES=1
+export CUDA_VISIBLE_DEVICES=0
 export CUDA_LAUNCH_BLOCKING=1
 #MODEL="pythia410m"
 MODEL="qwen18"
 #DATASET="ultrafb"
 DATASET="hh"
 SFT_EPOCHS=2
-N_EPOCHS=4
-N_EXAMPLES=20000
+N_EPOCHS=6
+N_EXAMPLES=30000
 EVAL_EVERY=100000
 DATE=$(date +%m%d)
 # sparsemax, ratio, topk
@@ -17,7 +17,7 @@ MASK_TYPE="hard_threshold"
 MASK_RATIO=0.9
 MASK_TOP_K=50
 MASK_STRENGTH=0.0
-MASK_THRESHOLD_PROB=0.01
+MASK_THRESHOLD_PROB=0.1
 
 python -u train.py \
     loss=masked_dpo \

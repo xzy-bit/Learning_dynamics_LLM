@@ -1,4 +1,4 @@
-export CUDA_VISIBLE_DEVICES=1
+export CUDA_VISIBLE_DEVICES=3
 export CUDA_LAUNCH_BLOCKING=1
 #MODEL="pythia410m"
 MODEL="qwen18"
@@ -9,10 +9,10 @@ N_EPOCHS=6
 N_EXAMPLES=30000
 EVAL_EVERY=40000
 DATE=$(date +%m%d)
-ALPHA=1.5
+ALPHA=2.0
 ENT_BETA=1.0
-USING_NS=false
-#USING_NS=true
+#USING_NS=false
+USING_NS=true
 python -u train.py \
     loss=ent_dpo \
     loss.beta=0.1 \

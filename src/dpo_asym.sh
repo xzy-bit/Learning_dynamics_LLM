@@ -1,4 +1,4 @@
-export CUDA_VISIBLE_DEVICES=2
+export CUDA_VISIBLE_DEVICES=1
 export CUDA_LAUNCH_BLOCKING=1
 #MODEL="pythia410m"
 MODEL="qwen18"
@@ -14,7 +14,7 @@ python -u train.py \
     loss.beta=0.1 \
     datasets=$DATASET \
     model=$MODEL \
-    exp_name="dpo_asym_${MODEL}_${DATASET}_ep${N_EPOCHS}_${DATE}"\
+    exp_name="dpo_asym_without_gradient_clip_${MODEL}_${DATASET}_ep${N_EPOCHS}_${DATE}"\
     trainer=BasicTrainer \
     n_epochs=$N_EPOCHS \
     n_examples=$N_EXAMPLES \
