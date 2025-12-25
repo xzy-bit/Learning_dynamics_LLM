@@ -15,8 +15,7 @@ from utils import (
     get_local_run_dir,
     disable_dropout,
 )
-from data import get_batch_iterator   # ⚠️ 按你项目真实路径修改
-
+from preference_datasets import get_batch_iterator
 OmegaConf.register_new_resolver(
     "get_local_run_dir",
     lambda exp_name, local_dirs: get_local_run_dir(exp_name, local_dirs),
@@ -50,7 +49,7 @@ def run_inference_one_split(
     policy.eval()
     all_samples = []
 
-    decode_act = "softmax"
+    decode_act = "sparsemax"
     device = next(policy.parameters()).device
 
     with torch.no_grad():
