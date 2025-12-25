@@ -102,10 +102,10 @@ def asymmetric_preference_loss(policy_chosen_logps: torch.FloatTensor,
     #tau = 0.05
     #gate = ((1.0 - p_r) / tau).clamp(max=1.0)
     #gate = gate.detach()
-    gate=1.0
+    gate=1000000.0
 
     # ========== rejected gradient source ==========
-    neglog1mp = -torch.log1p(-p_r.clamp(max=1 - 1e-6))*100.0
+    neglog1mp = -torch.log1p(-p_r.clamp(max=1 - 1e-6))
 
     # ========== gradient replacement ==========
     policy_rejected_score = (
