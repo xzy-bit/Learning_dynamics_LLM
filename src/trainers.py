@@ -350,9 +350,17 @@ def _get_batch_logps_masked(
                 sparsemax_rank_ratio_mean = rank_ratio[tail].mean()
 
             elif mask_type == "ratio":
+                print("=============Using Ratio============")
                 # rank = number of probs >= p(label)
-                rank = (prob_logits >= label_prob.unsqueeze(-1)).sum(dim=-1)
                 V = prob_logits.shape[-1]
+                rank = (prob_logits >= label_prob.unsqueeze(-1)).sum(dim=-1)
+                rank_ratio = rank.float() / V
+                print(
+                    "rank_ratio stats:",
+                    rank_ratio.min().item(),
+                    rank_ratio.mean().item(),
+                    rank_ratio.max().item()
+                )
                 tail = rank > int(mask_ratio * V)
 
             elif mask_type == "topk":
