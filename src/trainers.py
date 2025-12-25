@@ -34,7 +34,6 @@ from utils import (
 import numpy as np
 import wandb
 import tqdm
-
 import random
 import os
 from collections import defaultdict
@@ -826,6 +825,7 @@ class BasicTrainer(object):
                     losses, chosen_rewards, rejected_rewards,sigma_m = preference_loss(
                         policy_chosen_score, policy_rejected_score, reference_chosen_score, reference_rejected_score,
                         **loss_kwargs)
+
 
                 reward_accuracies = (chosen_rewards > rejected_rewards).float()
 
