@@ -377,16 +377,14 @@ def _get_batch_logps_masked(
             
             per_token_logps = torch.where(
                 tail,
-                per_token_logps.detach()
-                + log1mp.detach()
-                - log1mp,
+                per_token_logps.detach() + (log1mp.detach()- log1mp)*mask_strength,
                 per_token_logps
                 )
             print("==========Using -log(1-p)=============")
-        else:
-            w = torch.where(tail,torch.full_like(per_token_logps, mask_strength),torch.ones_like(per_token_logps))
-
-            per_token_logps = per_token_logps * w + per_token_logps.detach() * (1.0 - w)
+        # else:
+        #     w = torch.where(tail,torch.full_like(per_token_logps, mask_strength),torch.ones_like(per_token_logps))
+        #
+        #     per_token_logps = per_token_logps * w + per_token_logps.detach() * (1.0 - w)
 
         valid_mask = loss_mask.bool()
         zero_ratio = (tail & valid_mask).sum().float() / (valid_mask.sum().float() + 1e-8)

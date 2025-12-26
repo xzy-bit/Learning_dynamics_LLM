@@ -10,21 +10,21 @@ SFT_EPOCHS=2
 N_EPOCHS=6
 N_EXAMPLES=30000
 EVAL_EVERY=100000
-DATE="1223"
+DATE="1226"
 
-MASK_TYPE="ratio"
-MASK_TOP_K=50
-MASK_STRENGTH=0.0
+MASK_TYPE="ratio_log(1-p)"
+MASK_TOP_K=0
 MASK_THRESHOLD_PROB=0.1
+MASK_RATIO = 0.1
 
-RATIOS=(0.99 0.999 0.9999 0.99999 0.999999)
+MASK_STRENGTHS=(0.0 1.0 10.0 100.0 1000.0 10000.0 100000.0)
 
-for MASK_RATIO in "${RATIOS[@]}"; do
+for MASK_STRENGTH in "${MASK_STRENGTHS[@]}"; do
     echo "======================================================"
-    echo "Running Mask-DPO with mask_ratio=${MASK_RATIO}"
+    echo "Running Mask-DPO with mask_ratio=${MASK_STRENGTH}"
     echo "======================================================"
 
-    EXP_NAME="dpo_mask_${MASK_TYPE}_r_${MASK_RATIO}_k_${MASK_TOP_K}_s_${MASK_STRENGTH}_t_${MASK_THRESHOLD_PROB}_${MODEL}_${DATASET}_ep${N_EPOCHS}_${DATE}"
+    EXP_NAME="dpo_mask_${MASK_TYPE}_r_${MASK_RATIO}_k_${MASK_TOP_K}_s_${MASK_STRENGTH}_${MODEL}_${DATASET}_ep${N_EPOCHS}_${DATE}"
 
     # ------------------ Train ------------------
     python -u train.py \
