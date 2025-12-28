@@ -370,17 +370,23 @@ def _get_batch_logps_masked(
                 tail = label_prob < threshold_prob
             else:
                 raise ValueError(f"Unknown mask_type: {mask_type}")
+        
+
         if mask_type == "hard_threshold":
             eps = 1e-6
-            p = label_prob.clamp(min=eps, max=1 - eps)
-            log1mp = torch.log1p(-p)
-            
+            prob_logits_g = logits.softmax(-1)  # requires_grad=True
+            p_g = torch.gather(prob_logits_g, dim=2, index=labels.unsqueeze(2)).squeeze(2)
+            p_g = p_g.clamp(min=eps, max=1 - eps)
+            log1mp = torch.log1p(-p_g)
+
+            print("log1mp requires_grad:", log1mp.requires_grad)
             per_token_logps = torch.where(
                 tail,
                 per_token_logps.detach() + (log1mp.detach()- log1mp)*mask_strength,
                 per_token_logps
                 )
-            print("==========Using -log(1-p)=============")
+            #print("==========Using -log(1-p)=============")
+            #print(log1mp.sum(-1).detach()*mask_strength)
         # else:
         #     w = torch.where(tail,torch.full_like(per_token_logps, mask_strength),torch.ones_like(per_token_logps))
         #
@@ -1077,11 +1083,35 @@ class BasicTrainer(object):
                 #         reload_ref_required = False
                 loss, metrics, _ = self.get_batch_metrics(local_microbatch, self.config.loss, train=True)
                 (loss / self.config.gradient_accumulation_steps).backward()
+            #if self.example_counter % 50 == 0 and self.rank == 0:
+            #    for name, p in self.policy.named_parameters():
+            #        if p.grad is not None and "embed" in name:
+            #            print(
+            #                    f"[STEP {self.batch_counter}] "
+            #                    f"{name} grad |mean|={p.grad.abs().mean().item():.3e} "
+            #                    f"|norm|={p.grad.norm().item():.3e}"
+            #                    )
+            #            break
 
                 for k, v in metrics.items():
                     batch_metrics[k].extend(v)
+            # ===== clip 前 =====
+            #if self.example_counter % 50 == 0 and self.rank == 0:
+            #    pre_clip_norm = torch.norm(
+            #            torch.stack([
+            #                p.grad.norm()
+            #                for p in self.policy.parameters()
+            #                if p.grad is not None
+            #                ])
+            #            ).item()
+            #    print(f"[STEP {self.batch_counter}] grad_norm_pre_clip = {pre_clip_norm:.3e}")
 
             grad_norm = self.clip_gradient()
+
+            # ===== clip 后 =====
+            #if self.example_counter % 50 == 0 and self.rank == 0:
+            #    print(f"[STEP {self.batch_counter}] grad_norm_post_clip = {grad_norm:.3e}")
+            
             self.optimizer.step()
             self.scheduler.step()
             self.optimizer.zero_grad()
