@@ -214,6 +214,22 @@ def _get_batch_logps(logits: torch.FloatTensor, labels: torch.LongTensor,
     else:
         return out_token, (out_argmax, out_except_argmax, A_norm, prob_gap2_mean, prob_energy, labels_argmax)
 
+def entropy_from_logits(logits: torch.Tensor):
+    """Calculate entropy from logits."""
+    pd = torch.nn.functional.softmax(logits, dim=-1)
+    entropy = torch.logsumexp(logits, dim=-1) - torch.sum(pd * logits, dim=-1)
+    return entropy
+
+def row_quantile_masked(x: torch.Tensor, mask: torch.Tensor, q: float, eps=1e-8):
+
+    B, T = x.shape
+    qs = []
+    for b in range(B):
+        xb = x[b][mask[b]]
+        if xb.numel() == 0:
+            xb = x[b]
+        qs.append(torch.quantile(xb, q))
+    return torch.stack(qs, dim=0)  # [B]
 
 def _get_batch_fy_score(
         logits: torch.FloatTensor,
@@ -368,20 +384,24 @@ def _get_batch_logps_masked(
                 tail = label_prob < kth_val
             elif mask_type == "hard_threshold":
                 logits_fp32 = logits.float()
-                probs = logits_fp32.softmax(-1)
-                entropy = -(probs * torch.log(probs+1e-6)).sum(-1)
-                thr = torch.quantile(entropy.view(-1), 0.8)
-                forking = entropy > thr
+                entropy = entropy_from_logits(logits_fp32)
+
+                with torch.no_grad():
+                    thr = row_quantile_masked(entropy, loss_mask, q=0.8)  # [B]
+
+                forking = entropy > thr[:, None]  # [B, T]
 
                 tail = label_prob < threshold_prob
                 tail = tail & forking
 
             elif mask_type == "entropy_neg_top1":
                 logits_fp32 = logits.float()
-                probs = logits_fp32.softmax(-1)
-                entropy = -(probs * torch.log(probs+1e-6)).sum(-1)
-                thr = torch.quantile(entropy.view(-1), 0.8)
-                forking = entropy > thr
+                entropy = entropy_from_logits(logits_fp32)
+
+                with torch.no_grad():
+                    thr = row_quantile_masked(entropy, loss_mask, q=0.8)  # [B]
+
+                forking = entropy > thr[:, None]  # [B, T]
                 top1 = logits.argmax(dim=-1)
                 is_top1 = labels == top1
                 tail = forking & is_top1

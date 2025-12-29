@@ -9,6 +9,11 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 def log_print(s):
     print(s)
 
+def entropy_from_logits(logits: torch.Tensor):
+    """Calculate entropy from logits."""
+    pd = torch.nn.functional.softmax(logits, dim=-1)
+    entropy = torch.logsumexp(logits, dim=-1) - torch.sum(pd * logits, dim=-1)
+    return entropy
 
 @torch.no_grad()
 def analyze_text(
@@ -37,16 +42,16 @@ def analyze_text(
 
     # ===== forward =====
     outputs = model(input_ids)
-    logits = outputs.logits[:, :-1, :].float()    # force fp32
-    tokens = tokens[1:]                           # shift
+    logits = outputs.logits[:, :-1, :].float()    # [1, T-1, V]
+    tokens = tokens[1:]                           # shift to align
 
-    # ===== entropy (fp32 + eps) =====
-    probs = torch.softmax(logits, dim=-1)
-    eps = 1e-8
-    entropy = -(probs * torch.log(probs + eps)).sum(dim=-1)[0]  # [T-1]
+    # ===== entropy (logsumexp form, fp32, stable) =====
+    entropy = entropy_from_logits(logits)[0]      # [T-1]
 
+    # ===== per-sample quantile (no flatten!) =====
+    # since B=1 here, this is still "per-response"
     thr = torch.quantile(entropy, tau)
-    forking = entropy > thr
+    forking = entropy > thr                       # [T-1]
 
     # ===== mark tokens =====
     marked_tokens = []
@@ -63,6 +68,7 @@ def analyze_text(
     log_print(f"tau = {tau:.2f} | entropy threshold = {thr.item():.4f}")
     log_print(marked_text)
     log_print("=" * 70)
+
 
 
 def main():
