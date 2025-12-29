@@ -367,15 +367,24 @@ def _get_batch_logps_masked(
                 kth_val = topk_vals[..., -1]                   # [B, M]
                 tail = label_prob < kth_val
             elif mask_type == "hard_threshold":
+                logits_fp32 = logits.float()
+                probs = logits_fp32.softmax(-1)
+                entropy = -(probs * torch.log(probs+1e-6)).sum(-1)
+                thr = torch.quantile(entropy.view(-1), 0.8)
+                forking = entropy > thr
+
                 tail = label_prob < threshold_prob
+                tail = tail & forking
+
             elif mask_type == "entropy_neg_top1":
-                probs = logits.softmax(-1)
-                entropy = -(probs * probs.log()).sum(-1)
+                logits_fp32 = logits.float()
+                probs = logits_fp32.softmax(-1)
+                entropy = -(probs * torch.log(probs+1e-6)).sum(-1)
                 thr = torch.quantile(entropy.view(-1), 0.8)
                 forking = entropy > thr
                 top1 = logits.argmax(dim=-1)
                 is_top1 = labels == top1
-                neg_fork_top1 = forking & is_top1
+                tail = forking & is_top1
 
             else:
                 raise ValueError(f"Unknown mask_type: {mask_type}")
@@ -401,13 +410,13 @@ def _get_batch_logps_masked(
         #     per_token_logps = per_token_logps * w + per_token_logps.detach() * (1.0 - w)
         elif mask_type == "entropy_neg_top1":
             per_token_logps = torch.where(
-                neg_fork_top1,
+                tail,
                 per_token_logps * 1.1,
                 per_token_logps
             )
 
-        # valid_mask = loss_mask.bool()
-        # zero_ratio = (tail & valid_mask).sum().float() / (valid_mask.sum().float() + 1e-8)
+        valid_mask = loss_mask.bool()
+        zero_ratio = (tail & valid_mask).sum().float() / (valid_mask.sum().float() + 1e-8)
     
     per_token_logps = per_token_logps * loss_mask
     out_token = per_token_logps.sum(-1)      # [B]
