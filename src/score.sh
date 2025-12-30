@@ -1,4 +1,4 @@
-export CUDA_VISIBLE_DEVICES=0
+export CUDA_VISIBLE_DEVICES=1
 
 BASE_DIR="./exp_results"
 INPUT_NAME="prob_test_gen_response.jsonl"
