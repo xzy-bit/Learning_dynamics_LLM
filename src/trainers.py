@@ -431,7 +431,7 @@ def _get_batch_logps_masked(
         elif mask_type == "entropy_neg_top1":
             per_token_logps = torch.where(
                 tail,
-                per_token_logps * 1.1,
+                per_token_logps * mask_strength,
                 per_token_logps
             )
 

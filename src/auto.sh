@@ -11,20 +11,19 @@ N_EPOCHS=6
 N_EXAMPLES=30000
 EVAL_EVERY=100000
 DATE="1229"
-
-MASK_TYPE="hard_threshold"
+MASK_TYPE="entropy_neg_top1"
 MASK_TOP_K=0
 MASK_THRESHOLD_PROB=0.1
 MASK_RATIO=0.1
 
-MASK_STRENGTHS=(40.0 50.0)
+MASK_STRENGTHS=(0.8 1.0 1.3 1.5 2.0)
 
 for MASK_STRENGTH in "${MASK_STRENGTHS[@]}"; do
     echo "======================================================"
     echo "Running Mask-DPO"
     echo "======================================================"
 
-    EXP_NAME="dpo_mask_${MASK_TYPE}_s_${MASK_STRENGTH}_t_${MASK_THRESHOLD_PROB}_${MODEL}_${DATASET}_ep${N_EPOCHS}_${DATE}"
+    EXP_NAME="dpo_mask_${MASK_TYPE}_s_${MASK_STRENGTH}_t_${MODEL}_${DATASET}_ep${N_EPOCHS}_${DATE}"
 
     # ------------------ Train ------------------
     python -u train.py \
