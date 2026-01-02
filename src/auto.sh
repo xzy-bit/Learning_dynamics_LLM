@@ -10,13 +10,13 @@ SFT_EPOCHS=2
 N_EPOCHS=6
 N_EXAMPLES=30000
 EVAL_EVERY=100000
-DATE="1229"
+DATE="1231"
 MASK_TYPE="entropy_neg_top1"
 MASK_TOP_K=0
 MASK_THRESHOLD_PROB=0.1
 MASK_RATIO=0.1
 
-MASK_STRENGTHS=(0.8 1.0 1.3 1.5 2.0)
+MASK_STRENGTHS=(0.5)
 
 for MASK_STRENGTH in "${MASK_STRENGTHS[@]}"; do
     echo "======================================================"
