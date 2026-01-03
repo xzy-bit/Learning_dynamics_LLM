@@ -16,7 +16,7 @@ MASK_TOP_K=0
 MASK_THRESHOLD_PROB=0.1
 MASK_RATIO=0.1
 
-MASK_STRENGTHS=(0.5)
+MASK_STRENGTHS=(1.1)
 
 for MASK_STRENGTH in "${MASK_STRENGTHS[@]}"; do
     echo "======================================================"
