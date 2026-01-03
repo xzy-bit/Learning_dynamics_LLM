@@ -36,12 +36,11 @@ import wandb
 import tqdm
 import random
 import os
-from collections import defaultdict
+from collections import defaultdict,Counter
 import time
 import json
 import functools
 from typing import Optional, Dict, List, Union, Tuple
-
 
 def preference_loss(policy_chosen_logps: torch.FloatTensor,
                     policy_rejected_logps: torch.FloatTensor,
@@ -219,6 +218,111 @@ def entropy_from_logits(logits: torch.Tensor):
     pd = torch.nn.functional.softmax(logits, dim=-1)
     entropy = torch.logsumexp(logits, dim=-1) - torch.sum(pd * logits, dim=-1)
     return entropy
+
+@torch.no_grad()
+def entropy_binning_from_logits(
+    logits: torch.Tensor,
+    labels: torch.Tensor,
+    bin_edges: torch.Tensor,
+):
+    """
+    logits: [B, T, V]
+    labels: [B, T]
+    return: histogram counts [num_bins]
+    """
+    # shift
+    logits = logits[:, :-1, :]
+    labels = labels[:, 1:]
+
+    entropy = entropy_from_logits(logits)  # [B, T]
+    mask = labels != -100
+    entropy = entropy[mask]
+
+    # clamp to [min, max)
+    entropy = entropy.clamp(
+        min=bin_edges[0].item(),
+        max=bin_edges[-1].item() - 1e-6
+    )
+
+    hist = torch.histc(
+        entropy,
+        bins=len(bin_edges) - 1,
+        min=bin_edges[0].item(),
+        max=bin_edges[-1].item(),
+    )
+    return hist.cpu()
+
+
+
+
+@torch.no_grad()
+def max_entropy_token_topk(
+    logits: torch.Tensor,
+    labels: torch.Tensor,
+    tokenizer,
+    k: int = 3,
+):
+    """
+    For each response:
+      - find token with maximum entropy
+      - return its top-k candidate tokens (strings)
+    """
+    logits = logits[:, :-1, :]      # [B, T, V]
+    labels = labels[:, 1:]          # [B, T]
+    mask = labels != -100
+
+    entropy = entropy_from_logits(logits)   # [B, T]
+    entropy = entropy.masked_fill(~mask, -1e9)
+
+    max_pos = entropy.argmax(dim=1)          # [B]
+
+    # gather logits at that position
+    B = logits.size(0)
+    sel_logits = logits[torch.arange(B), max_pos]  # [B, V]
+
+    # top-k candidates
+    topk_vals, topk_idx = sel_logits.topk(k, dim=-1)  # [B, k]
+
+    # convert to tokens
+    tokens = []
+    for i in range(B):
+        toks = tokenizer.convert_ids_to_tokens(
+            topk_idx[i].tolist()
+        )
+        tokens.append(toks)
+
+    return tokens   # List[List[str]] length B
+
+@torch.no_grad()
+def max_entropy_token_topk_words(
+    logits: torch.Tensor,
+    labels: torch.Tensor,
+    tokenizer,
+    k: int = 3,
+):
+    """
+    return: List[List[str]]  # per response
+    """
+    logits = logits[:, :-1, :]
+    labels = labels[:, 1:]
+    mask = labels != -100
+
+    entropy = entropy_from_logits(logits)
+    entropy = entropy.masked_fill(~mask, -1e9)
+
+    max_pos = entropy.argmax(dim=1)  # [B]
+
+    B = logits.size(0)
+    sel_logits = logits[torch.arange(B), max_pos]  # [B, V]
+
+    _, topk_idx = sel_logits.topk(k, dim=-1)
+
+    out = []
+    for i in range(B):
+        toks = tokenizer.convert_ids_to_tokens(topk_idx[i].tolist())
+        out.append(toks)
+    return out
+
 
 def row_quantile_masked(x: torch.Tensor, mask: torch.Tensor, q: float, eps=1e-8):
 
@@ -574,6 +678,25 @@ class BasicTrainer(object):
         effectively offering N times available memory, but without any parallel 
         computation.
         """
+        # entropy bins
+        self.entropy_min = 0.0
+        self.entropy_max = 5.0
+        self.num_bins = 50
+        self.entropy_bins = torch.linspace(
+            self.entropy_min, self.entropy_max, self.num_bins + 1
+        )
+
+        # histogram accumulator
+        self.entropy_hist = {
+            "chosen": torch.zeros(self.num_bins),
+            "rejected": torch.zeros(self.num_bins),
+        }
+
+        self.maxent_word_counter = {
+            "chosen": Counter(),
+            "rejected": Counter(),
+        }
+
         self.seed = seed
         self.rank = rank
         self.world_size = world_size
@@ -1087,6 +1210,53 @@ class BasicTrainer(object):
         saving_epoch = 1
         # reload_ref_required = True
         for batch in self.train_iterator:
+            if self.loss_config.name in {"dpo", "masked_dpo"}:
+                with torch.no_grad():
+                    # ===== chosen =====
+                    chosen_logits = self.policy(
+                        batch["chosen_input_ids"],
+                        attention_mask=batch["chosen_attention_mask"]
+                    ).logits.float()
+
+                    chosen_hist = entropy_binning_from_logits(
+                        chosen_logits,
+                        batch["chosen_labels"],
+                        self.entropy_bins
+                    )
+                    self.entropy_hist["chosen"] += chosen_hist
+
+                    # ===== rejected =====
+                    rejected_logits = self.policy(
+                        batch["rejected_input_ids"],
+                        attention_mask=batch["rejected_attention_mask"]
+                    ).logits.float()
+
+                    rejected_hist = entropy_binning_from_logits(
+                        rejected_logits,
+                        batch["rejected_labels"],
+                        self.entropy_bins
+                    )
+                    self.entropy_hist["rejected"] += rejected_hist
+
+                    chosen_words = max_entropy_token_topk_words(
+                        chosen_logits,
+                        batch["chosen_labels"],
+                        self.tokenizer,
+                        k=3,
+                    )
+                    for ws in chosen_words:
+                        self.maxent_word_counter["chosen"].update(ws)
+
+                    # rejected
+                    rejected_words = max_entropy_token_topk_words(
+                        rejected_logits,
+                        batch["rejected_labels"],
+                        self.tokenizer,
+                        k=3,
+                    )
+                    for ws in rejected_words:
+                        self.maxent_word_counter["rejected"].update(ws)
+
             #### BEGIN EVALUATION ####
             if self.example_counter % self.config.eval_every == 0 and (
                     self.example_counter > 0 or self.config.do_first_eval):
@@ -1102,6 +1272,32 @@ class BasicTrainer(object):
                 output_dir = os.path.join(self.config.save_path)
                 self.save_pt(epoch,output_dir)
                 saving_epoch+=1
+
+                word_out = {
+                    "epoch": epoch,
+                    "chosen": dict(self.maxent_word_counter["chosen"]),
+                    "rejected": dict(self.maxent_word_counter["rejected"]),
+                }
+
+                with open(f"max_entropy_top3_words_epoch_{epoch}.json", "w") as f:
+                    json.dump(word_out, f, indent=2)
+
+                self.maxent_word_counter["chosen"].clear()
+                self.maxent_word_counter["rejected"].clear()
+
+                entropy_out = {
+                    "epoch": epoch,
+                    "bins": self.entropy_bins.tolist(),
+                    "chosen": self.entropy_hist["chosen"].tolist(),
+                    "rejected": self.entropy_hist["rejected"].tolist(),
+                }
+
+                with open(f"entropy_hist_epoch_{epoch}.json", "w") as f:
+                    json.dump(entropy_out, f, indent=2)
+
+                # reset
+                self.entropy_hist["chosen"].zero_()
+                self.entropy_hist["rejected"].zero_()
 
             #### BEGIN TRAINING ####
             self.policy.train()
@@ -1154,7 +1350,7 @@ class BasicTrainer(object):
             # ===== clip 后 =====
             #if self.example_counter % 50 == 0 and self.rank == 0:
             #    print(f"[STEP {self.batch_counter}] grad_norm_post_clip = {grad_norm:.3e}")
-            
+
             self.optimizer.step()
             self.scheduler.step()
             self.optimizer.zero_grad()
@@ -1201,6 +1397,32 @@ class BasicTrainer(object):
         if self.config.save_ckp:
             output_dir = os.path.join(self.config.save_path)
             self.save(output_dir)
+            word_out = {
+                "epoch": 6,
+                "chosen": dict(self.maxent_word_counter["chosen"]),
+                "rejected": dict(self.maxent_word_counter["rejected"]),
+            }
+
+            with open(f"max_entropy_top3_words_epoch_{epoch}.json", "w") as f:
+                json.dump(word_out, f, indent=2)
+
+            self.maxent_word_counter["chosen"].clear()
+            self.maxent_word_counter["rejected"].clear()
+
+            entropy_out = {
+                "epoch": 6,
+                "bins": self.entropy_bins.tolist(),
+                "chosen": self.entropy_hist["chosen"].tolist(),
+                "rejected": self.entropy_hist["rejected"].tolist(),
+            }
+
+            with open(f"entropy_hist_epoch_{epoch}.json", "w") as f:
+                json.dump(entropy_out, f, indent=2)
+
+            # reset
+            self.entropy_hist["chosen"].zero_()
+            self.entropy_hist["rejected"].zero_()
+
 
     def clip_gradient(self):
         """Clip the gradient norm of the parameters of a non-FSDP policy."""
