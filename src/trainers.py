@@ -1210,37 +1210,44 @@ class BasicTrainer(object):
         saving_epoch = 1
         # reload_ref_required = True
         for batch in self.train_iterator:
-            if self.loss_config.name in {"dpo", "masked_dpo"}:
+            if self.config.loss.name in {"dpo", "masked_dpo"}:
+                local_batch = slice_and_move_batch_for_device(
+                        batch,
+                        self.rank,
+                        self.world_size,
+                        self.rank
+                )
+
                 with torch.no_grad():
                     # ===== chosen =====
                     chosen_logits = self.policy(
-                        batch["chosen_input_ids"],
-                        attention_mask=batch["chosen_attention_mask"]
+                        local_batch["chosen_input_ids"],
+                        attention_mask=local_batch["chosen_attention_mask"]
                     ).logits.float()
 
                     chosen_hist = entropy_binning_from_logits(
                         chosen_logits,
-                        batch["chosen_labels"],
+                        local_batch["chosen_labels"],
                         self.entropy_bins
                     )
                     self.entropy_hist["chosen"] += chosen_hist
 
                     # ===== rejected =====
                     rejected_logits = self.policy(
-                        batch["rejected_input_ids"],
-                        attention_mask=batch["rejected_attention_mask"]
+                        local_batch["rejected_input_ids"],
+                        attention_mask=local_batch["rejected_attention_mask"]
                     ).logits.float()
 
                     rejected_hist = entropy_binning_from_logits(
                         rejected_logits,
-                        batch["rejected_labels"],
+                        local_batch["rejected_labels"],
                         self.entropy_bins
                     )
                     self.entropy_hist["rejected"] += rejected_hist
 
                     chosen_words = max_entropy_token_topk_words(
                         chosen_logits,
-                        batch["chosen_labels"],
+                        local_batch["chosen_labels"],
                         self.tokenizer,
                         k=3,
                     )
@@ -1250,7 +1257,7 @@ class BasicTrainer(object):
                     # rejected
                     rejected_words = max_entropy_token_topk_words(
                         rejected_logits,
-                        batch["rejected_labels"],
+                        local_batch["rejected_labels"],
                         self.tokenizer,
                         k=3,
                     )
@@ -1279,7 +1286,7 @@ class BasicTrainer(object):
                     "rejected": dict(self.maxent_word_counter["rejected"]),
                 }
 
-                with open(f"max_entropy_top3_words_epoch_{epoch}.json", "w") as f:
+                with open(os.path.join(self.config.save_path,f"max_entropy_top3_words_epoch_{epoch}.json"), "w") as f:
                     json.dump(word_out, f, indent=2)
 
                 self.maxent_word_counter["chosen"].clear()
@@ -1292,7 +1299,7 @@ class BasicTrainer(object):
                     "rejected": self.entropy_hist["rejected"].tolist(),
                 }
 
-                with open(f"entropy_hist_epoch_{epoch}.json", "w") as f:
+                with open(os.path.join(self.config.save_path,f"entropy_hist_epoch_{epoch}.json"), "w") as f:
                     json.dump(entropy_out, f, indent=2)
 
                 # reset
@@ -1403,7 +1410,7 @@ class BasicTrainer(object):
                 "rejected": dict(self.maxent_word_counter["rejected"]),
             }
 
-            with open(f"max_entropy_top3_words_epoch_{epoch}.json", "w") as f:
+            with open(os.path.join(self.config.save_path,f"max_entropy_top3_words_epoch_6.json"), "w") as f:
                 json.dump(word_out, f, indent=2)
 
             self.maxent_word_counter["chosen"].clear()
@@ -1416,7 +1423,7 @@ class BasicTrainer(object):
                 "rejected": self.entropy_hist["rejected"].tolist(),
             }
 
-            with open(f"entropy_hist_epoch_{epoch}.json", "w") as f:
+            with open(os.path.join(self.config.save_path, f"entropy_hist_epoch_6.json"), "w") as f:
                 json.dump(entropy_out, f, indent=2)
 
             # reset
