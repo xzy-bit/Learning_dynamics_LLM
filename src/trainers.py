@@ -215,8 +215,16 @@ def _get_batch_logps(logits: torch.FloatTensor, labels: torch.LongTensor,
 
 def entropy_from_logits(logits: torch.Tensor):
     """Calculate entropy from logits."""
-    pd = torch.nn.functional.softmax(logits, dim=-1)
-    entropy = torch.logsumexp(logits, dim=-1) - torch.sum(pd * logits, dim=-1)
+    k = 20 
+    if k == 0:
+        pd = torch.nn.functional.softmax(logits, dim=-1)
+        entropy = torch.logsumexp(logits, dim=-1) - torch.sum(pd * logits, dim=-1)
+    else:
+        pd = torch.softmax(logits, dim=-1)          # [..., V]
+        topk_pd, _ = torch.topk(pd, k=k, dim=-1)    # [..., k]
+        eps = 1e-12
+        entropy = -(topk_pd * torch.log(topk_pd + eps)).sum(dim=-1)
+    
     return entropy
 
 @torch.no_grad()
@@ -680,8 +688,8 @@ class BasicTrainer(object):
         """
         # entropy bins
         self.entropy_min = 0.0
-        self.entropy_max = 5.0
-        self.num_bins = 50
+        self.entropy_max = 10.0
+        self.num_bins = 100
         self.entropy_bins = torch.linspace(
             self.entropy_min, self.entropy_max, self.num_bins + 1
         )
