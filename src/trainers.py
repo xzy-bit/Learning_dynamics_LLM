@@ -1288,31 +1288,31 @@ class BasicTrainer(object):
                 self.save_pt(epoch,output_dir)
                 saving_epoch+=1
 
-                word_out = {
-                    "epoch": epoch,
-                    "chosen": dict(self.maxent_word_counter["chosen"]),
-                    "rejected": dict(self.maxent_word_counter["rejected"]),
-                }
-
-                with open(os.path.join(self.config.save_path,f"max_entropy_top3_words_epoch_{epoch}.json"), "w") as f:
-                    json.dump(word_out, f, indent=2)
-
-                self.maxent_word_counter["chosen"].clear()
-                self.maxent_word_counter["rejected"].clear()
-
-                entropy_out = {
-                    "epoch": epoch,
-                    "bins": self.entropy_bins.tolist(),
-                    "chosen": self.entropy_hist["chosen"].tolist(),
-                    "rejected": self.entropy_hist["rejected"].tolist(),
-                }
-
-                with open(os.path.join(self.config.save_path,f"entropy_hist_epoch_{epoch}.json"), "w") as f:
-                    json.dump(entropy_out, f, indent=2)
-
-                # reset
-                self.entropy_hist["chosen"].zero_()
-                self.entropy_hist["rejected"].zero_()
+                # word_out = {
+                #     "epoch": epoch,
+                #     "chosen": dict(self.maxent_word_counter["chosen"]),
+                #     "rejected": dict(self.maxent_word_counter["rejected"]),
+                # }
+                #
+                # with open(os.path.join(self.config.save_path,f"max_entropy_top3_words_epoch_{epoch}.json"), "w") as f:
+                #     json.dump(word_out, f, indent=2)
+                #
+                # self.maxent_word_counter["chosen"].clear()
+                # self.maxent_word_counter["rejected"].clear()
+                #
+                # entropy_out = {
+                #     "epoch": epoch,
+                #     "bins": self.entropy_bins.tolist(),
+                #     "chosen": self.entropy_hist["chosen"].tolist(),
+                #     "rejected": self.entropy_hist["rejected"].tolist(),
+                # }
+                #
+                # with open(os.path.join(self.config.save_path,f"entropy_hist_epoch_{epoch}.json"), "w") as f:
+                #     json.dump(entropy_out, f, indent=2)
+                #
+                # # reset
+                # self.entropy_hist["chosen"].zero_()
+                # self.entropy_hist["rejected"].zero_()
 
             #### BEGIN TRAINING ####
             self.policy.train()
@@ -1418,25 +1418,25 @@ class BasicTrainer(object):
                 "rejected": dict(self.maxent_word_counter["rejected"]),
             }
 
-            with open(os.path.join(self.config.save_path,f"max_entropy_top3_words_epoch_6.json"), "w") as f:
-                json.dump(word_out, f, indent=2)
-
-            self.maxent_word_counter["chosen"].clear()
-            self.maxent_word_counter["rejected"].clear()
-
-            entropy_out = {
-                "epoch": 6,
-                "bins": self.entropy_bins.tolist(),
-                "chosen": self.entropy_hist["chosen"].tolist(),
-                "rejected": self.entropy_hist["rejected"].tolist(),
-            }
-
-            with open(os.path.join(self.config.save_path, f"entropy_hist_epoch_6.json"), "w") as f:
-                json.dump(entropy_out, f, indent=2)
-
-            # reset
-            self.entropy_hist["chosen"].zero_()
-            self.entropy_hist["rejected"].zero_()
+            # with open(os.path.join(self.config.save_path,f"max_entropy_top3_words_epoch_6.json"), "w") as f:
+            #     json.dump(word_out, f, indent=2)
+            #
+            # self.maxent_word_counter["chosen"].clear()
+            # self.maxent_word_counter["rejected"].clear()
+            #
+            # entropy_out = {
+            #     "epoch": 6,
+            #     "bins": self.entropy_bins.tolist(),
+            #     "chosen": self.entropy_hist["chosen"].tolist(),
+            #     "rejected": self.entropy_hist["rejected"].tolist(),
+            # }
+            #
+            # with open(os.path.join(self.config.save_path, f"entropy_hist_epoch_6.json"), "w") as f:
+            #     json.dump(entropy_out, f, indent=2)
+            #
+            # # reset
+            # self.entropy_hist["chosen"].zero_()
+            # self.entropy_hist["rejected"].zero_()
 
 
     def clip_gradient(self):
