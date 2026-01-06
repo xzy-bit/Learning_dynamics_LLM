@@ -215,7 +215,7 @@ def _get_batch_logps(logits: torch.FloatTensor, labels: torch.LongTensor,
 
 def entropy_from_logits(logits: torch.Tensor):
     """Calculate entropy from logits."""
-    k = 20 
+    k = 0 
     if k == 0:
         pd = torch.nn.functional.softmax(logits, dim=-1)
         entropy = torch.logsumexp(logits, dim=-1) - torch.sum(pd * logits, dim=-1)

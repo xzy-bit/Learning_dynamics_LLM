@@ -3,7 +3,7 @@ import json
 import torch
 from collections import defaultdict
 from transformers import AutoModelForCausalLM, AutoTokenizer
-
+from tqdm import tqdm
 from preference_datasets import get_batch_iterator
 from utils import get_local_dir
 
@@ -13,6 +13,16 @@ from trainers import (
     entropy_from_logits,
 )
 
+def get_ckpt_path(save_path, epoch):
+    p = os.path.join(save_path, f"policy_{epoch}.pt")
+    print(p)
+    if os.path.exists(p):
+        return p
+    # 兼容最后一个 epoch 只保存 policy.pt 的情况
+    p = os.path.join(save_path, "policy.pt")
+    if os.path.exists(p):
+        return p
+    raise FileNotFoundError(f"Checkpoint not found for epoch {epoch}")
 
 # =====================================================
 # token-level entropy online 统计（不存 list）
@@ -65,9 +75,13 @@ def analyze_entropy(
         torch_dtype=torch.float16,
         device_map="auto",
     )
+    if ckpt_path is not None:
+        ckpt = torch.load(ckpt_path, map_location="cpu")
+        state = ckpt["state"] if isinstance(ckpt, dict) and "state" in ckpt else ckpt
+        model.load_state_dict(state, strict=False)
+    else:
+        print("[INFO] Using pretrained model (no checkpoint loaded)")
 
-    ckpt = torch.load(ckpt_path, map_location="cpu")
-    model.load_state_dict(ckpt["state"], strict=False)
     model.eval()
 
     # ===== entropy bins（与你 trainer 里一致）=====
@@ -105,11 +119,12 @@ def analyze_entropy(
         shuffle=False,              # 固定顺序，保证可复现
         n_epochs=1,
         batch_size=config.eval_batch_size,
+        n_examples=config.n_examples,
         silent=False,
     )
 
     # ===== 统计 =====
-    for batch in train_iterator:
+    for batch in tqdm(train_iterator):
         for key in ["chosen", "rejected"]:
             logits = model(
                 batch[f"{key}_input_ids"].to(device),
@@ -123,7 +138,6 @@ def analyze_entropy(
                 entropy_bins,
             )
             entropy_hist[key] += hist.cpu()
-
             # --- token-level avg entropy ---
             update_token_entropy_stats(
                 logits,
@@ -139,15 +153,13 @@ def analyze_entropy(
 # 保存结果
 # =====================================================
 def save_results(
-    save_dir,
+    config,
     epoch,
     entropy_bins,
     entropy_hist,
     token_count,
     token_entropy_sum,
 ):
-    os.makedirs(save_dir, exist_ok=True)
-
     # ===== entropy histogram =====
     entropy_out = {
         "epoch": epoch,
@@ -155,54 +167,72 @@ def save_results(
         "chosen": entropy_hist["chosen"].tolist(),
         "rejected": entropy_hist["rejected"].tolist(),
     }
+
     with open(
-        os.path.join(save_dir, f"entropy_hist_epoch_{epoch}.json"), "w"
+        os.path.join(
+            config.save_path,
+            f"entropy_hist_epoch_{epoch}.json"
+        ),
+        "w"
     ) as f:
         json.dump(entropy_out, f, indent=2)
 
-    # ===== token-level entropy stats =====
+    # ===== token-level entropy stats（复用原文件名）=====
     token_entropy_out = {
         "epoch": epoch,
         "chosen": {
             str(tok): {
                 "count": token_count["chosen"][tok],
-                "avg_entropy": token_entropy_sum["chosen"][tok]
-                               / token_count["chosen"][tok],
+                "avg_entropy":
+                    token_entropy_sum["chosen"][tok]
+                    / token_count["chosen"][tok],
             }
             for tok in token_count["chosen"]
         },
         "rejected": {
             str(tok): {
                 "count": token_count["rejected"][tok],
-                "avg_entropy": token_entropy_sum["rejected"][tok]
-                               / token_count["rejected"][tok],
+                "avg_entropy":
+                    token_entropy_sum["rejected"][tok]
+                    / token_count["rejected"][tok],
             }
             for tok in token_count["rejected"]
         },
     }
 
     with open(
-        os.path.join(save_dir, f"token_entropy_stats_epoch_{epoch}.json"), "w"
+        os.path.join(
+            config.save_path,
+            f"max_entropy_top3_words_epoch_{epoch}.json"
+        ),
+        "w"
     ) as f:
         json.dump(token_entropy_out, f, indent=2)
 
+import hydra
+from omegaconf import DictConfig
 
-# =====================================================
-# main
-# =====================================================
-if __name__ == "__main__":
-    from omegaconf import OmegaConf
+@hydra.main(config_path="config", config_name="config", version_base=None)
+def main(config: DictConfig):
 
-    config = OmegaConf.load("config.yaml")  # 你的原 config
-
-    for epoch in [1, 2, 3, 4, 5, 6]:
-        ckpt_path = os.path.join(
-            config.save_path,
-            f"ep{epoch}",
-            "policy.pt",
+    if config.analysis.use_pretrained:
+        bins, hist, token_count, token_entropy_sum = analyze_entropy(
+            ckpt_path=None,
+            config=config,
         )
 
-        print(f"=== Analyzing entropy for epoch {epoch} ===")
+        save_results(
+            config=config,
+            epoch="pretrained",
+            entropy_bins=bins,
+            entropy_hist=hist,
+            token_count=token_count,
+            token_entropy_sum=token_entropy_sum,
+        )
+        return
+
+    for epoch in range(1, config.n_epochs + 1):
+        ckpt_path = get_ckpt_path(config.save_path, epoch)
 
         bins, hist, token_count, token_entropy_sum = analyze_entropy(
             ckpt_path=ckpt_path,
@@ -210,10 +240,14 @@ if __name__ == "__main__":
         )
 
         save_results(
-            save_dir=os.path.join(config.save_path, "entropy_analysis"),
+            config=config,
             epoch=epoch,
             entropy_bins=bins,
             entropy_hist=hist,
             token_count=token_count,
             token_entropy_sum=token_entropy_sum,
         )
+
+if __name__ == "__main__":
+    main()
+
