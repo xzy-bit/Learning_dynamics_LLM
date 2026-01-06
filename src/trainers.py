@@ -215,7 +215,7 @@ def _get_batch_logps(logits: torch.FloatTensor, labels: torch.LongTensor,
 
 def entropy_from_logits(logits: torch.Tensor):
     """Calculate entropy from logits."""
-    k = 0 
+    k = 0
     if k == 0:
         pd = torch.nn.functional.softmax(logits, dim=-1)
         entropy = torch.logsumexp(logits, dim=-1) - torch.sum(pd * logits, dim=-1)
@@ -224,7 +224,7 @@ def entropy_from_logits(logits: torch.Tensor):
         topk_pd, _ = torch.topk(pd, k=k, dim=-1)    # [..., k]
         eps = 1e-12
         entropy = -(topk_pd * torch.log(topk_pd + eps)).sum(dim=-1)
-    
+
     return entropy
 
 @torch.no_grad()
@@ -259,8 +259,6 @@ def entropy_binning_from_logits(
         max=bin_edges[-1].item(),
     )
     return hist.cpu()
-
-
 
 
 @torch.no_grad()
@@ -952,8 +950,6 @@ class BasicTrainer(object):
             chosen = self.config.train_supervise
         argmax_token = np.array([0])  # dummy variable for the stupid bug, ugly but useful!!!
         if train:
-            print("==============================================================")
-            print(loss_config.name)
             if loss_config.name in {'dpo', 'ipo', 'masked_dpo','sp_dpo','ent_dpo','asym_dpo'} and not force_sft:
                 if loss_config.name == 'masked_dpo' or loss_config.name == 'dpo' or loss_config.name == 'ipo' or loss_config.name=='asym_dpo':
                     if loss_config.name == 'masked_dpo':
@@ -1004,6 +1000,9 @@ class BasicTrainer(object):
                         policy_chosen_score, policy_rejected_score, reference_chosen_score, reference_rejected_score,
                         **loss_kwargs)
 
+                if self.config.using_extra_ce==True:
+                    ce_losses = -policy_chosen_logps - policy_rejected_logps
+                    losses = losses + self.config.ce_lambda * ce_losses
 
                 reward_accuracies = (chosen_rewards > rejected_rewards).float()
 

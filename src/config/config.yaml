@@ -105,6 +105,8 @@ defaults:
 - model: blank_model_fp32 # basic model configuration
 - loss: sft # which loss function, either sft or dpo (specify loss.beta if using dpo)
 
+using_extra_ce: false
+ce_lambda: 0
 analysis:
   use_pretrained: false
-
+  mode: gen
