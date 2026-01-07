@@ -354,7 +354,7 @@ from omegaconf import DictConfig
 
 @hydra.main(config_path="config", config_name="config", version_base=None)
 def main(config: DictConfig):
-    if config.analysis.model == "tf":
+    if config.analysis.mode == "tf":
         if config.analysis.use_pretrained:
             bins, hist, token_count, token_entropy_sum,tokenizer  = analyze_entropy(
                 ckpt_path=None,

@@ -1001,6 +1001,7 @@ class BasicTrainer(object):
                         **loss_kwargs)
 
                 if self.config.using_extra_ce==True:
+                    print("===============================================")
                     ce_losses = -policy_chosen_logps - policy_rejected_logps
                     losses = losses + self.config.ce_lambda * ce_losses
 

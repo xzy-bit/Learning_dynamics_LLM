@@ -11,6 +11,7 @@ N_EPOCHS=1
 DATE=$(date +%m%d)
 N_EXAMPLES=5000
 python analyze_entropy.py \
+  analysis.mode="tf"\
   analysis.use_pretrained=true \
   model=$MODEL \
   datasets=$DATASET \
