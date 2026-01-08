@@ -915,8 +915,8 @@ class BasicTrainer(object):
          # chosen_score = all_scores[:batch['chosen_input_ids'].shape[0]]
          # rejected_score = all_scores[batch['chosen_input_ids'].shape[0]:]
 
-         with torch.no_grad():
-             all_logps, _ = _get_batch_logps(all_logits, concatenated_batch['concatenated_labels'],
+          
+         all_logps, _ = _get_batch_logps(all_logits, concatenated_batch['concatenated_labels'],
                                              average_log_prob=False)
          chosen_logps = all_logps[:batch['chosen_input_ids'].shape[0]]
          rejected_logps = all_logps[batch['chosen_input_ids'].shape[0]:]

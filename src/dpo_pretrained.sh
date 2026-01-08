@@ -8,7 +8,7 @@ N_EPOCHS=6
 N_EXAMPLES=30000
 EVAL_EVERY=80000
 #DATE=$(date +%m%d)
-DATE="0107"
+DATE="0108"
 ALPHA=1.5
 ENT_BETA=1.0
 USING_NS=true
@@ -22,7 +22,7 @@ for LAMBDA in "${LAMBDAS[@]}"; do
         loss.using_ns=$USING_NS\
     	datasets=$DATASET \
         model=$MODEL \
-    	exp_name="dpo_mixed_entmax_l_${LAMBDA}_a_${ALPHA}_usingNs_${USING_NS}_${MODEL}_${DATASET}_ep${N_EPOCHS}_${DATE}" \
+    	exp_name="dpo_mixed_entmax_l_${LAMBDA}_a_${ALPHA}_b_${}_usingNs_${USING_NS}_${MODEL}_${DATASET}_ep${N_EPOCHS}_${DATE}" \
         trainer=BasicTrainer \
         n_epochs=$N_EPOCHS \
         n_examples=$N_EXAMPLES \
