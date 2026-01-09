@@ -14,28 +14,28 @@ ALPHA=1.5
 USING_NS=true
 BETAS=(0.5 1.0 1.5)
 
-for BETA in "${BETAS[@]}"; do
-    python -u train.py \
-    	loss=ent_dpo \
-	loss.beta=0.1 \
-	loss.alpha=$ALPHA \
-	loss.ent_beta=$BETA\
-	loss.using_ns=$USING_NS\
-	datasets=$DATASET \
-	model=$MODEL \
-	exp_name="dpo_entmax_${ALPHA}_beta_${BETA}_usingNs_${USING_NS}_${MODEL}_${DATASET}_ep${N_EPOCHS}_${DATE}"\
-	trainer=BasicTrainer \
-	using_extra_ce=false\
-	n_epochs=$N_EPOCHS \
-	n_examples=$N_EXAMPLES \
-	save_ckp=true \
-	eval_every=$EVAL_EVERY
+#for BETA in "${BETAS[@]}"; do
+#    python -u train.py \
+#    	loss=ent_dpo \
+#	loss.beta=0.1 \
+#	loss.alpha=$ALPHA \
+#	loss.ent_beta=$BETA\
+#	loss.using_ns=$USING_NS\
+#	datasets=$DATASET \
+#	model=$MODEL \
+#	exp_name="dpo_entmax_${ALPHA}_beta_${BETA}_usingNs_${USING_NS}_${MODEL}_${DATASET}_ep${N_EPOCHS}_${DATE}"\
+#	trainer=BasicTrainer \
+#	using_extra_ce=false\
+#	n_epochs=$N_EPOCHS \
+#	n_examples=$N_EXAMPLES \
+#	save_ckp=true \
+#	eval_every=$EVAL_EVERY
 	
-done
+#done
 
 for BETA in "${BETAS[@]}"; do
     python -u gen_multipt.py \
         model=${MODEL} \
-        model.archive="dpo_entmax_${ALPHA}_beta_${ENT_BETA}_usingNs_${USING_NS}_${MODEL}_${DATASET}_ep${N_EPOCHS}_${DATE}"\
-        exp_name="eval_dpo_entmax_${ALPHA}_beta_${ENT_BETA}_usingNs_${USING_NS}_${MODEL}_${DATASET}_ep${N_EPOCHS}_${DATE}"
+        model.archive="dpo_entmax_${ALPHA}_beta_${BETA}_usingNs_${USING_NS}_${MODEL}_${DATASET}_ep${N_EPOCHS}_${DATE}"\
+        exp_name="eval_dpo_entmax_${ALPHA}_beta_${BETA}_usingNs_${USING_NS}_${MODEL}_${DATASET}_ep${N_EPOCHS}_${DATE}"
 done

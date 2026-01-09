@@ -685,23 +685,23 @@ class BasicTrainer(object):
         computation.
         """
         # entropy bins
-        self.entropy_min = 0.0
-        self.entropy_max = 10.0
-        self.num_bins = 100
-        self.entropy_bins = torch.linspace(
-            self.entropy_min, self.entropy_max, self.num_bins + 1
-        )
+        #self.entropy_min = 0.0
+        #self.entropy_max = 10.0
+        #self.num_bins = 100
+        #self.entropy_bins = torch.linspace(
+        #    self.entropy_min, self.entropy_max, self.num_bins + 1
+        #)
 
         # histogram accumulator
-        self.entropy_hist = {
-            "chosen": torch.zeros(self.num_bins),
-            "rejected": torch.zeros(self.num_bins),
-        }
+        #self.entropy_hist = {
+        #    "chosen": torch.zeros(self.num_bins),
+        #    "rejected": torch.zeros(self.num_bins),
+        #}
 
-        self.maxent_word_counter = {
-            "chosen": Counter(),
-            "rejected": Counter(),
-        }
+        #self.maxent_word_counter = {
+        #    "chosen": Counter(),
+        #    "rejected": Counter(),
+        #}
 
         self.seed = seed
         self.rank = rank
@@ -1000,10 +1000,10 @@ class BasicTrainer(object):
                         policy_chosen_score, policy_rejected_score, reference_chosen_score, reference_rejected_score,
                         **loss_kwargs)
 
-                if self.config.using_extra_ce==True:
-                    print("===============================================")
-                    ce_losses = -policy_chosen_logps - policy_rejected_logps
-                    losses = losses + self.config.ce_lambda * ce_losses
+                #if self.config.using_extra_ce==True:
+                #    print("===============================================")
+                #    ce_losses = -policy_chosen_logps - policy_rejected_logps
+                #    losses = losses + self.config.ce_lambda * ce_losses
 
                 reward_accuracies = (chosen_rewards > rejected_rewards).float()
 
@@ -1226,51 +1226,51 @@ class BasicTrainer(object):
                         self.rank
                 )
 
-                with torch.no_grad():
+                #with torch.no_grad():
                     # ===== chosen =====
-                    chosen_logits = self.policy(
-                        local_batch["chosen_input_ids"],
-                        attention_mask=local_batch["chosen_attention_mask"]
-                    ).logits.float()
+                #    chosen_logits = self.policy(
+                #        local_batch["chosen_input_ids"],
+                #        attention_mask=local_batch["chosen_attention_mask"]
+                #    ).logits.float()
 
-                    chosen_hist = entropy_binning_from_logits(
-                        chosen_logits,
-                        local_batch["chosen_labels"],
-                        self.entropy_bins
-                    )
-                    self.entropy_hist["chosen"] += chosen_hist
+                #    chosen_hist = entropy_binning_from_logits(
+                #        chosen_logits,
+                #        local_batch["chosen_labels"],
+                #        self.entropy_bins
+                #    )
+                #    self.entropy_hist["chosen"] += chosen_hist
 
                     # ===== rejected =====
-                    rejected_logits = self.policy(
-                        local_batch["rejected_input_ids"],
-                        attention_mask=local_batch["rejected_attention_mask"]
-                    ).logits.float()
+                #    rejected_logits = self.policy(
+                #        local_batch["rejected_input_ids"],
+                #        attention_mask=local_batch["rejected_attention_mask"]
+                #    ).logits.float()
 
-                    rejected_hist = entropy_binning_from_logits(
-                        rejected_logits,
-                        local_batch["rejected_labels"],
-                        self.entropy_bins
-                    )
-                    self.entropy_hist["rejected"] += rejected_hist
+                #    rejected_hist = entropy_binning_from_logits(
+                #        rejected_logits,
+                #        local_batch["rejected_labels"],
+                #        self.entropy_bins
+                #    )
+                #    self.entropy_hist["rejected"] += rejected_hist
 
-                    chosen_words = max_entropy_token_topk_words(
-                        chosen_logits,
-                        local_batch["chosen_labels"],
-                        self.tokenizer,
-                        k=3,
-                    )
-                    for ws in chosen_words:
-                        self.maxent_word_counter["chosen"].update(ws)
+                #    chosen_words = max_entropy_token_topk_words(
+                #        chosen_logits,
+                #        local_batch["chosen_labels"],
+                #        self.tokenizer,
+                #        k=3,
+                #    )
+                #    for ws in chosen_words:
+                #        self.maxent_word_counter["chosen"].update(ws)
 
                     # rejected
-                    rejected_words = max_entropy_token_topk_words(
-                        rejected_logits,
-                        local_batch["rejected_labels"],
-                        self.tokenizer,
-                        k=3,
-                    )
-                    for ws in rejected_words:
-                        self.maxent_word_counter["rejected"].update(ws)
+                #    rejected_words = max_entropy_token_topk_words(
+                #        rejected_logits,
+                #        local_batch["rejected_labels"],
+                #        self.tokenizer,
+                #        k=3,
+                #    )
+                #    for ws in rejected_words:
+                #        self.maxent_word_counter["rejected"].update(ws)
 
             #### BEGIN EVALUATION ####
             if self.example_counter % self.config.eval_every == 0 and (
@@ -1282,11 +1282,11 @@ class BasicTrainer(object):
                 #    argmax_npy_all.extend(argmax_npy)
                 # self.evaluation(prob_set='prob_test')
             #### END EVALUATION ####
-            epoch = self.example_counter // 5000
-            if epoch == saving_epoch and epoch!=6:
-                output_dir = os.path.join(self.config.save_path)
-                self.save_pt(epoch,output_dir)
-                saving_epoch+=1
+            #epoch = self.example_counter // 5000
+            #if epoch == saving_epoch and epoch!=6:
+            #    output_dir = os.path.join(self.config.save_path)
+            #    self.save_pt(epoch,output_dir)
+            #    saving_epoch+=1
 
                 # word_out = {
                 #     "epoch": epoch,
@@ -1349,22 +1349,8 @@ class BasicTrainer(object):
 
                 for k, v in metrics.items():
                     batch_metrics[k].extend(v)
-            # ===== clip 前 =====
-            #if self.example_counter % 50 == 0 and self.rank == 0:
-            #    pre_clip_norm = torch.norm(
-            #            torch.stack([
-            #                p.grad.norm()
-            #                for p in self.policy.parameters()
-            #                if p.grad is not None
-            #                ])
-            #            ).item()
-            #    print(f"[STEP {self.batch_counter}] grad_norm_pre_clip = {pre_clip_norm:.3e}")
 
             grad_norm = self.clip_gradient()
-
-            # ===== clip 后 =====
-            #if self.example_counter % 50 == 0 and self.rank == 0:
-            #    print(f"[STEP {self.batch_counter}] grad_norm_post_clip = {grad_norm:.3e}")
 
             self.optimizer.step()
             self.scheduler.step()
@@ -1412,11 +1398,11 @@ class BasicTrainer(object):
         if self.config.save_ckp:
             output_dir = os.path.join(self.config.save_path)
             self.save(output_dir)
-            word_out = {
-                "epoch": 6,
-                "chosen": dict(self.maxent_word_counter["chosen"]),
-                "rejected": dict(self.maxent_word_counter["rejected"]),
-            }
+            #word_out = {
+            #    "epoch": 6,
+            #    "chosen": dict(self.maxent_word_counter["chosen"]),
+            #    "rejected": dict(self.maxent_word_counter["rejected"]),
+            #}
 
             # with open(os.path.join(self.config.save_path,f"max_entropy_top3_words_epoch_6.json"), "w") as f:
             #     json.dump(word_out, f, indent=2)
