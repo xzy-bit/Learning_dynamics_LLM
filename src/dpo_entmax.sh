@@ -13,7 +13,7 @@ ALPHA=1.5
 
 #USING_NS=false
 USING_NS=true
-BETAS=(0.5 1.0 1.5)
+BETAS=(0.0 0.1 0.25)
 
 for BETA in "${BETAS[@]}"; do
     python -u train.py \
