@@ -1000,10 +1000,10 @@ class BasicTrainer(object):
                         policy_chosen_score, policy_rejected_score, reference_chosen_score, reference_rejected_score,
                         **loss_kwargs)
 
-                #if self.config.using_extra_ce==True:
-                #    print("===============================================")
-                #    ce_losses = -policy_chosen_logps - policy_rejected_logps
-                #    losses = losses + self.config.ce_lambda * ce_losses
+                if self.config.using_extra_ce==True:
+                    print("===============================================")
+                    ce_losses = -policy_chosen_logps
+                    losses = losses + self.config.ce_lambda * ce_losses
 
                 reward_accuracies = (chosen_rewards > rejected_rewards).float()
 
