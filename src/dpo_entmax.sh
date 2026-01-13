@@ -1,4 +1,4 @@
-export CUDA_VISIBLE_DEVICES=1
+export CUDA_VISIBLE_DEVICES=3
 export CUDA_LAUNCH_BLOCKING=1
 #MODEL="pythia410m"
 MODEL="llama3_1"
@@ -14,8 +14,8 @@ DATE="0111"
 #USING_NS=false
 USING_NS=true
 
-ALPHAS=(1.75 2.0)
-BETA=0.5
+ALPHAS=(1.25)
+BETA=1.0
 
 for ALPHA in "${ALPHAS[@]}"; do
     python -u train.py \
