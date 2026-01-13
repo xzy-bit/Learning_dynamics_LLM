@@ -5,7 +5,7 @@ import torch.nn.functional as F
 import torch.nn as nn
 import transformers
 from omegaconf import DictConfig
-from entmax import sparsemax_loss, sparsemax, entmax_bisect_loss,entmax15
+from entmax import sparsemax_loss, sparsemax, entmax_bisect_loss,entmax15,entmax_bisect
 import torch.distributed as dist
 from torch.distributed.fsdp import (
     FullyShardedDataParallel as FSDP,
@@ -382,6 +382,7 @@ def _get_batch_ent_score(
         beta:float = 0.5,
         ispos: bool = False,
         using_ns: bool = False,
+        temperature: float = 1.0,
 ):
     """
     Compute sequence-level Fenchel–Young (sparsemax) scores for each example.
@@ -396,7 +397,7 @@ def _get_batch_ent_score(
     shift_labels = shift_labels.masked_fill(~mask, 0)
 
     # compute sparsemax loss per token
-    flat_logits = shift_logits.view(-1, V)
+    flat_logits = shift_logits.view(-1, V) * temperature
     flat_labels = shift_labels.view(-1)
     flat_loss = entmax_bisect_loss(flat_logits, flat_labels, alpha, n_iter=50)  # [B*(M-1)]
 
@@ -404,7 +405,11 @@ def _get_batch_ent_score(
     token_loss = flat_loss.view(B, M - 1)
 
     if ispos and using_ns:
-        entmax_probs = entmax15(flat_logits, dim=-1)
+        entmax_probs = torch.zeros((B,M))
+        if alpha == 1.5:
+            entmax_probs = entmax15(flat_logits, dim=-1)
+        else:
+            entmax_probs = entmax_bisect(flat_logits,alpha,dim=-1,n_iter=50)
         softmax_probs = F.softmax(flat_logits, dim=-1)
 
         # one-hot label mask
@@ -580,18 +585,14 @@ def _aggregate_token_metrics(logits: torch.FloatTensor,
 
     prob_soft = torch.softmax(logits, dim=-1)  # [B, M, V]
 
-    # p(label)
     p_label_soft = torch.gather(prob_soft, 2, labels.unsqueeze(2)).squeeze(2)  # [B, M]
     soft_max_vals, soft_argmax_idx = prob_soft.max(dim=-1)  # [B, M]
 
-    # 是否 label==argmax
     logits_argmax_idx = logits.argmax(dim=-1)  # [B, M]
     chosen_is_argmax = (labels == logits_argmax_idx) & loss_mask
 
-    # pos 是否等于该步的最大概率
     label_pos_equal_max = (torch.abs(p_label_soft - soft_max_vals) <= eps) & loss_mask
 
-    # masked mean 辅助
     denom = loss_mask.sum(-1).clamp_min(1)  # [B]
 
     def mm(x):  # masked mean over time
@@ -894,7 +895,7 @@ class BasicTrainer(object):
         #return chosen_score, rejected_score, chosen_logps, rejected_logps, chosen_soft_probs, rejected_soft_probs, chosen_sparse_probs, rejected_sparse_probs, chosen_sparse_argmax, chosen_sparse_eq1_ratio, chosen_label_eq_argmax_ratio
         return chosen_score, rejected_score, chosen_logps, rejected_logps
 
-    def concatenated_forward_ent(self, model: nn.Module, batch: Dict[str, Union[List, torch.LongTensor]],alpha,beta,using_ns):
+    def concatenated_forward_ent(self, model: nn.Module, batch: Dict[str, Union[List, torch.LongTensor]],alpha,beta,using_ns,temperature):
          """Run the given model on the given batch of inputs, concatenating the chosen and rejected inputs together.
             But change the logps into FY-loss
          """
@@ -908,14 +909,13 @@ class BasicTrainer(object):
          rejected_logits = all_logits[batch['chosen_input_ids'].shape[0]:]
          rejected_labels = concatenated_batch['concatenated_labels'][batch['chosen_input_ids'].shape[0]:]
 
-         chosen_score = _get_batch_ent_score(chosen_logis, chosen_labels, alpha=alpha,beta=beta,ispos=True,using_ns=using_ns)
-         rejected_score = _get_batch_ent_score(rejected_logits, rejected_labels, alpha=alpha,beta=beta,ispos=False,using_ns=using_ns)
+         chosen_score = _get_batch_ent_score(chosen_logis, chosen_labels, alpha=alpha,beta=beta,ispos=True,using_ns=using_ns,temperature=temperature)
+         rejected_score = _get_batch_ent_score(rejected_logits, rejected_labels, alpha=alpha,beta=beta,ispos=False,using_ns=using_ns,temperature=temperature)
 
          # all_scores = _get_batch_ent_score(all_logits, concatenated_batch['concatenated_labels'],alpha=alpha)
          # chosen_score = all_scores[:batch['chosen_input_ids'].shape[0]]
          # rejected_score = all_scores[batch['chosen_input_ids'].shape[0]:]
 
-          
          all_logps, _ = _get_batch_logps(all_logits, concatenated_batch['concatenated_labels'],
                                              average_log_prob=False)
          chosen_logps = all_logps[:batch['chosen_input_ids'].shape[0]]
@@ -950,6 +950,7 @@ class BasicTrainer(object):
             chosen = self.config.train_supervise
         argmax_token = np.array([0])  # dummy variable for the stupid bug, ugly but useful!!!
         if train:
+            # get batch scores
             if loss_config.name in {'dpo', 'ipo', 'masked_dpo','sp_dpo','ent_dpo','asym_dpo'} and not force_sft:
                 if loss_config.name == 'masked_dpo' or loss_config.name == 'dpo' or loss_config.name == 'ipo' or loss_config.name=='asym_dpo':
                     if loss_config.name == 'masked_dpo':
@@ -979,11 +980,13 @@ class BasicTrainer(object):
                         alpha = loss_config.alpha
                         beta = loss_config.ent_beta
                         using_ns = loss_config.using_ns
-                        policy_chosen_score, policy_rejected_score, policy_chosen_logps, policy_rejected_logps = self.concatenated_forward_ent(self.policy, batch,alpha,beta,using_ns)
+                        temperature = loss_config.temperature
+                        policy_chosen_score, policy_rejected_score, policy_chosen_logps, policy_rejected_logps = self.concatenated_forward_ent(self.policy, batch,alpha,beta,using_ns,temperature)
                         with torch.no_grad():
                             reference_chosen_score, reference_rejected_score,_,_ = self.concatenated_forward_ent(
-                                self.reference_model, batch,alpha,beta,using_ns)
+                                self.reference_model, batch,alpha,beta,using_ns,temperature)
 
+                # Calculate the loss
                 if loss_config.name in {'dpo', 'masked_dpo','sp_dpo','ent_dpo','asym_dpo'}:
                     loss_kwargs = {'beta': loss_config.beta, 'reference_free': loss_config.reference_free,
                                    'label_smoothing': loss_config.label_smoothing, 'ipo': False}
@@ -1000,10 +1003,18 @@ class BasicTrainer(object):
                         policy_chosen_score, policy_rejected_score, reference_chosen_score, reference_rejected_score,
                         **loss_kwargs)
 
-                if self.config.using_extra_ce==True:
-                    print("===============================================")
-                    ce_losses = -policy_chosen_logps
-                    losses = losses + self.config.ce_lambda * ce_losses
+
+
+                if self.config.using_extra==True:
+                    print("===============Adding DPO loss====================")
+                    with torch.no_grad():
+                        _,_, reference_chosen_logps, reference_rejected_logps  = self.concatenated_forward_ent(
+                            self.reference_model, batch, alpha, beta, using_ns, temperature)
+                    dpo_losses, _,_,_ = preference_loss(
+                        policy_chosen_logps, policy_rejected_logps, reference_chosen_logps, reference_rejected_logps,
+                        **loss_kwargs)
+
+                    losses = losses * self.config.ce_lambda + dpo_losses
 
                 reward_accuracies = (chosen_rewards > rejected_rewards).float()
 
@@ -1273,10 +1284,11 @@ class BasicTrainer(object):
                 #        self.maxent_word_counter["rejected"].update(ws)
 
             #### BEGIN EVALUATION ####
-            if self.example_counter % self.config.eval_every == 0 and (
-                    self.example_counter > 0 or self.config.do_first_eval):
-                rank0_print(f'Running evaluation after {self.example_counter} ' + 'train examples')
-                _, _ = self.evaluation(prob_set='prob_train')  # [B,1] and [B, M]
+            # if self.example_counter % self.config.eval_every == 0 and (
+            #         self.example_counter > 0 or self.config.do_first_eval):
+            #     rank0_print(f'Running evaluation after {self.example_counter} ' + 'train examples')
+            #     _, _ = self.evaluation(prob_set='prob_train')  # [B,1] and [B, M]
+
                 # if self.rank==0:
                 #    logp_npy_all.append(logp_npy)
                 #    argmax_npy_all.extend(argmax_npy)

@@ -8,14 +8,14 @@ DATASET="hh"
 N_EPOCHS=6
 N_EXAMPLES=30000
 EVAL_EVERY=40000
-DATE="0111"
-#ALPHA=1.5
+DATE="0113"
 
-#USING_NS=false
 USING_NS=true
 
-ALPHAS=(1.25)
-BETA=1.0
+ALPHAS=(1.5)
+BETA=0.25
+TEMP=0.9
+LAMBDA=0.1
 
 for ALPHA in "${ALPHAS[@]}"; do
     python -u train.py \
@@ -24,9 +24,12 @@ for ALPHA in "${ALPHAS[@]}"; do
 	loss.alpha=$ALPHA \
 	loss.ent_beta=$BETA\
 	loss.using_ns=$USING_NS\
+	loss.temperature=$TEMP\
+	using_extra_ce=false \
+  ce_lambda=$LAMBDA \
 	datasets=$DATASET \
 	model=$MODEL \
-	exp_name="dpo_entmax_${ALPHA}_beta_${BETA}_usingNs_${USING_NS}_${MODEL}_${DATASET}_ep${N_EPOCHS}_${DATE}"\
+	exp_name="dpo_entmax_${ALPHA}_beta_${BETA}_T_${TEMP}_usingNs_${USING_NS}_${MODEL}_${DATASET}_ep${N_EPOCHS}_${DATE}"\
 	trainer=BasicTrainer \
 	using_extra_ce=false\
 	n_epochs=$N_EPOCHS \
