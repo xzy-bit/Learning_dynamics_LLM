@@ -207,11 +207,18 @@ def _get_batch_logps(logits: torch.FloatTensor, labels: torch.LongTensor,
     out_argmax = (per_token_logps_argmax * loss_mask).sum(-1)
     out_except_argmax = (per_token_logp_exceptargmax * loss_mask).sum(-1)
 
+    correct_mask = (labels == labels_argmax)
+    valid_correct_mask = correct_mask & loss_mask
+
+    token_avg_prob = prob_label[loss_mask].mean()
+    label_eq_argmax_rate = valid_correct_mask.float().mean()
+    argmax_prob_avg = per_token_prob_argmax[loss_mask].mean()
+
     if average_log_prob:
         return out_token / loss_mask.sum(-1), (out_argmax / loss_mask.sum(-1), out_except_argmax / loss_mask.sum(-1),
-                                               A_norm, prob_gap2_mean, prob_energy, labels_argmax)
+                                               A_norm, prob_gap2_mean, prob_energy, labels_argmax,token_avg_prob, label_eq_argmax_rate, argmax_prob_avg)
     else:
-        return out_token, (out_argmax, out_except_argmax, A_norm, prob_gap2_mean, prob_energy, labels_argmax)
+        return out_token, (out_argmax, out_except_argmax, A_norm, prob_gap2_mean, prob_energy, labels_argmax,token_avg_prob, label_eq_argmax_rate, argmax_prob_avg)
 
 def entropy_from_logits(logits: torch.Tensor):
     """Calculate entropy from logits."""
@@ -404,12 +411,21 @@ def _get_batch_ent_score(
     # reshape back to [B, M-1]
     token_loss = flat_loss.view(B, M - 1)
 
+    entmax_probs = torch.zeros((B, M))
+    # ===== entmax probs =====
+    if alpha == 1.5:
+        entmax_probs = entmax15(flat_logits, dim=-1)
+    else:
+        entmax_probs = entmax_bisect(flat_logits, alpha, dim=-1, n_iter=50)
+
+    # ===== support size per token =====
+    eps = 1e-8
+    support_size = (entmax_probs > eps).sum(dim=-1)  # [B*(M-1)]
+    support_size = support_size.view(B, M - 1)  # [B, M-1]
+
+    token_avg_support = support_size[mask].float().mean()
+
     if ispos and using_ns:
-        entmax_probs = torch.zeros((B,M))
-        if alpha == 1.5:
-            entmax_probs = entmax15(flat_logits, dim=-1)
-        else:
-            entmax_probs = entmax_bisect(flat_logits,alpha,dim=-1,n_iter=50)
         softmax_probs = F.softmax(flat_logits, dim=-1)
 
         # one-hot label mask
@@ -430,7 +446,7 @@ def _get_batch_ent_score(
     # sum over valid tokens
     # out_token  = (per_token_logps * loss_mask).sum(-1)  #[B, 1]
     scores = -token_loss.sum(-1)
-    return scores
+    return scores,token_avg_support
 
 
 def _get_batch_logps_masked(
@@ -835,10 +851,28 @@ class BasicTrainer(object):
         concatenated_batch = concatenated_inputs(batch)
         all_logits = model(concatenated_batch['concatenated_input_ids'],
                            attention_mask=concatenated_batch['concatenated_attention_mask']).logits.to(torch.float32)
-        all_logps, _ = _get_batch_logps(all_logits, concatenated_batch['concatenated_labels'], average_log_prob=False)
+        (
+            all_logps,
+            (
+                out_argmax,
+                out_except_argmax,
+                A_norm,
+                prob_gap2_mean,
+                prob_energy,
+                labels_argmax,
+                label_eq_argmax_avg_prob,
+                label_eq_argmax_rate,
+                argmax_prob_avg,
+                token_avg_prob,
+            ),
+        ) = _get_batch_logps(
+            all_logits,
+            concatenated_batch['concatenated_labels'],
+            average_log_prob=False,
+        )
         chosen_logps = all_logps[:batch['chosen_input_ids'].shape[0]]
         rejected_logps = all_logps[batch['chosen_input_ids'].shape[0]:]
-        return chosen_logps, rejected_logps
+        return chosen_logps, rejected_logps,label_eq_argmax_rate,argmax_prob_avg,token_avg_prob
 
     def concatenated_forward_masked(self, model: nn.Module, batch: Dict[str, Union[List, torch.LongTensor]],mask_type:str,mask_ratio:float,mask_top_k:int,mask_strength:float,mask_threshold_prob:float):
         concatenated_batch = concatenated_inputs(batch)
@@ -909,20 +943,38 @@ class BasicTrainer(object):
          rejected_logits = all_logits[batch['chosen_input_ids'].shape[0]:]
          rejected_labels = concatenated_batch['concatenated_labels'][batch['chosen_input_ids'].shape[0]:]
 
-         chosen_score = _get_batch_ent_score(chosen_logis, chosen_labels, alpha=alpha,beta=beta,ispos=True,using_ns=using_ns,temperature=temperature)
-         rejected_score = _get_batch_ent_score(rejected_logits, rejected_labels, alpha=alpha,beta=beta,ispos=False,using_ns=using_ns,temperature=temperature)
+         chosen_score,chosen_token_avg_support = _get_batch_ent_score(chosen_logis, chosen_labels, alpha=alpha,beta=beta,ispos=True,using_ns=using_ns,temperature=temperature)
+         rejected_score,rejected_token_avg_support = _get_batch_ent_score(rejected_logits, rejected_labels, alpha=alpha,beta=beta,ispos=False,using_ns=using_ns,temperature=temperature)
 
          # all_scores = _get_batch_ent_score(all_logits, concatenated_batch['concatenated_labels'],alpha=alpha)
          # chosen_score = all_scores[:batch['chosen_input_ids'].shape[0]]
          # rejected_score = all_scores[batch['chosen_input_ids'].shape[0]:]
 
-         all_logps, _ = _get_batch_logps(all_logits, concatenated_batch['concatenated_labels'],
-                                             average_log_prob=False)
+         (
+             all_logps,
+             (
+                 out_argmax,
+                 out_except_argmax,
+                 A_norm,
+                 prob_gap2_mean,
+                 prob_energy,
+                 labels_argmax,
+                 label_eq_argmax_avg_prob,
+                 label_eq_argmax_rate,
+                 argmax_prob_avg,
+                 token_avg_prob,
+             ),
+         ) = _get_batch_logps(
+             all_logits,
+             concatenated_batch['concatenated_labels'],
+             average_log_prob=False,
+         )
+
          chosen_logps = all_logps[:batch['chosen_input_ids'].shape[0]]
          rejected_logps = all_logps[batch['chosen_input_ids'].shape[0]:]
 
 
-         return chosen_score, rejected_score, chosen_logps, rejected_logps
+         return chosen_score, rejected_score, chosen_logps, rejected_logps, chosen_token_avg_support,rejected_token_avg_support,label_eq_argmax_rate,argmax_prob_avg,token_avg_prob
 
     def get_batch_metrics(
             self,
@@ -963,10 +1015,10 @@ class BasicTrainer(object):
                             metrics["masked_dpo/rank_ratio"] = [zero_ratio["rank_ratio"]]
                             metrics["masked_dpo/rank"] = [zero_ratio["rank"]]
                     elif loss_config.name == 'dpo' or loss_config.name == 'ipo' or loss_config.name == 'asym_dpo':
-                        policy_chosen_score, policy_rejected_score = self.concatenated_forward(
+                        policy_chosen_score, policy_rejected_score,label_eq_argmax_rate,argmax_prob_avg,token_avg_prob = self.concatenated_forward(
                             self.policy, batch)
                     with torch.no_grad():
-                        reference_chosen_score, reference_rejected_score = self.concatenated_forward(
+                        reference_chosen_score, reference_rejected_score,_,_,_ = self.concatenated_forward(
                             self.reference_model, batch)
                     policy_chosen_logps, policy_rejected_logps = policy_chosen_score, policy_rejected_score
 
@@ -981,10 +1033,18 @@ class BasicTrainer(object):
                         beta = loss_config.ent_beta
                         using_ns = loss_config.using_ns
                         temperature = loss_config.temperature
-                        policy_chosen_score, policy_rejected_score, policy_chosen_logps, policy_rejected_logps = self.concatenated_forward_ent(self.policy, batch,alpha,beta,using_ns,temperature)
+                        policy_chosen_score, policy_rejected_score, policy_chosen_logps, policy_rejected_logps, policy_chosen_support, policy_rejected_support,label_eq_argmax_rate,argmax_prob_avg,token_avg_prob = self.concatenated_forward_ent(self.policy, batch,alpha,beta,using_ns,temperature)
                         with torch.no_grad():
-                            reference_chosen_score, reference_rejected_score,_,_ = self.concatenated_forward_ent(
+                            reference_chosen_score, reference_rejected_score,_,_, reference_chosen_support, reference_rejected_support,_,_,_ = self.concatenated_forward_ent(
                                 self.reference_model, batch,alpha,beta,using_ns,temperature)
+                        policy_chosen_support = all_gather_if_needed(policy_chosen_support, self.rank, self.world_size)
+                        policy_rejected_support = all_gather_if_needed(policy_chosen_support, self.rank, self.world_size)
+                        reference_chosen_support = all_gather_if_needed(reference_chosen_support, self.rank, self.world_size)
+                        reference_rejected_support = all_gather_if_needed(reference_rejected_support, self.rank, self.world_size)
+                        metrics[f'entmax_{train_test}/policy_chosen_support'] = policy_chosen_support.cpu().numpy().tolist()
+                        metrics[f'entmax_{train_test}/policy_rejected_support'] = policy_rejected_support.cpu().numpy().tolist()
+                        metrics[f'entmax_{train_test}/ref_chosen_support'] = reference_chosen_support.cpu().numpy().tolist()
+                        metrics[f'entmax_{train_test}/ref_rejected_support'] = reference_rejected_support.cpu().numpy().tolist()
 
                 # Calculate the loss
                 if loss_config.name in {'dpo', 'masked_dpo','sp_dpo','ent_dpo','asym_dpo'}:
@@ -1021,6 +1081,10 @@ class BasicTrainer(object):
                 chosen_rewards = all_gather_if_needed(chosen_rewards, self.rank, self.world_size)
                 rejected_rewards = all_gather_if_needed(rejected_rewards, self.rank, self.world_size)
                 reward_accuracies = all_gather_if_needed(reward_accuracies, self.rank, self.world_size)
+
+                metrics[f'confidence_{train_test}/label_eq_argmax_rate'] = label_eq_argmax_rate.item()
+                metrics[f'confidence_{train_test}/argmax_prob_avg'] = argmax_prob_avg.item()
+                metrics[f'confidence_{train_test}/token_avg_prob'] = token_avg_prob.item()
 
                 metrics[f'rewards_{train_test}/chosen'] = chosen_rewards.cpu().numpy().tolist()
                 metrics[f'rewards_{train_test}/rejected'] = rejected_rewards.cpu().numpy().tolist()
