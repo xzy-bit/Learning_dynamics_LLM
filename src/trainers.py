@@ -1005,7 +1005,7 @@ class BasicTrainer(object):
 
 
 
-                if self.config.using_extra==True:
+                if self.config.using_extra_ce==True:
                     print("===============Adding DPO loss====================")
                     with torch.no_grad():
                         _,_, reference_chosen_logps, reference_rejected_logps  = self.concatenated_forward_ent(
@@ -1295,10 +1295,10 @@ class BasicTrainer(object):
                 # self.evaluation(prob_set='prob_test')
             #### END EVALUATION ####
             epoch = self.example_counter // 5000
-            if epoch == saving_epoch and epoch!=6:
+            if epoch == saving_epoch and epoch!=10:
                 output_dir = os.path.join(self.config.save_path)
                 self.save_pt(epoch,output_dir)
-                saving_epoch+=1
+                saving_epoch+=2
 
                 # word_out = {
                 #     "epoch": epoch,

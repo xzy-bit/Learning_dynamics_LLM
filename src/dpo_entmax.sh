@@ -1,23 +1,23 @@
-export CUDA_VISIBLE_DEVICES=3
+export CUDA_VISIBLE_DEVICES=2
 export CUDA_LAUNCH_BLOCKING=1
 #MODEL="pythia410m"
 MODEL="llama3_1"
 #MODEL="qwen18"
 #DATASET="ultrafb"
 DATASET="hh"
-N_EPOCHS=6
-N_EXAMPLES=30000
-EVAL_EVERY=40000
+N_EPOCHS=10
+N_EXAMPLES=50000
+EVAL_EVERY=80000
 DATE="0113"
 
 USING_NS=true
 
-ALPHAS=(1.5)
+ALPHA=1.5
 BETA=0.25
-TEMP=0.9
+TEMPS=(0.8 0.9)
 LAMBDA=0.1
 
-for ALPHA in "${ALPHAS[@]}"; do
+for TEMP in "${TEMPS[@]}"; do
     python -u train.py \
     	loss=ent_dpo \
 	loss.beta=0.1 \
@@ -26,7 +26,7 @@ for ALPHA in "${ALPHAS[@]}"; do
 	loss.using_ns=$USING_NS\
 	loss.temperature=$TEMP\
 	using_extra_ce=false \
-  ce_lambda=$LAMBDA \
+  	ce_lambda=$LAMBDA \
 	datasets=$DATASET \
 	model=$MODEL \
 	exp_name="dpo_entmax_${ALPHA}_beta_${BETA}_T_${TEMP}_usingNs_${USING_NS}_${MODEL}_${DATASET}_ep${N_EPOCHS}_${DATE}"\
@@ -39,10 +39,10 @@ for ALPHA in "${ALPHAS[@]}"; do
 	
 done
 
-for ALPHA in "${ALPHAS[@]}"; do
+for TEMP in "${TEMPS[@]}"; do
     python -u gen_multipt.py \
         model=${MODEL} \
-        model.archive="dpo_entmax_${ALPHA}_beta_${BETA}_usingNs_${USING_NS}_${MODEL}_${DATASET}_ep${N_EPOCHS}_${DATE}"\
-        exp_name="eval_dpo_entmax_${ALPHA}_beta_${BETA}_usingNs_${USING_NS}_${MODEL}_${DATASET}_ep${N_EPOCHS}_${DATE}"
+        model.archive="dpo_entmax_${ALPHA}_beta_${BETA}_T_${TEMP}_usingNs_${USING_NS}_${MODEL}_${DATASET}_ep${N_EPOCHS}_${DATE}"\
+        exp_name="eval_dpo_entmax_${ALPHA}_beta_${BETA}_T_${TEMP}_usingNs_${USING_NS}_${MODEL}_${DATASET}_ep${N_EPOCHS}_${DATE}"
 done
 score.sh
