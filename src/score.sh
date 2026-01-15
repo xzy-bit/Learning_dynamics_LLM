@@ -2,7 +2,7 @@ export CUDA_VISIBLE_DEVICES=1
 
 BASE_DIR="./exp_results"
 INPUT_NAME="prob_test_gen_response.jsonl"
-OUTPUT_NAME="prmpt_resp_reward.jsonl"
+OUTPUT_NAME="prmpt_resp_reward_new.jsonl"
 RW_MODEL="Skywork/Skywork-Reward-V2-Llama-3.1-8B"
 
 find "$BASE_DIR" -type f -name "$INPUT_NAME" | while read -r INPUT_FILE; do
@@ -15,7 +15,7 @@ find "$BASE_DIR" -type f -name "$INPUT_NAME" | while read -r INPUT_FILE; do
     fi
 
     echo "[RUN ] Scoring $INPUT_FILE"
-	
+
     python score_response.py \
 	--input_file $INPUT_FILE \
 	--output_file $OUTPUT_FILE \

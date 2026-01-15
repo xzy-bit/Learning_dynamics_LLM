@@ -6,32 +6,51 @@ import torch
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 
 
-# ---------- clean text ----------
+# =========================================================
+# Prompt / Response handling
+# =========================================================
 
-def extract_last_answer(text: str) -> str:
-    idx = text.rfind("Assistant:")
-    if idx == -1:
-        return text.strip()
-    return text[idx + len("Assistant:"):].strip()
+def split_prompt_response(raw_prompt: str, raw_response: str):
+    """
+    正确拆分多轮对话的 prompt / response
 
+    约定：
+    - raw_prompt 必须以 '\n\nAssistant:' 结尾
+    - raw_response 可能包含 prompt 的 echo，也可能只包含回答
 
-def clean_answer(prompt: str, response: str) -> str:
-    # 去掉 prompt continuation
+    返回：
+    - prompt: 原样保留（包含完整多轮对话 + Assistant:）
+    - response: 仅最后一轮 assistant 的纯回答文本
+    """
+
+    prompt = raw_prompt.strip()
+
+    if not prompt.endswith("Assistant:"):
+        raise ValueError(
+            "Invalid prompt format: prompt must end with 'Assistant:'\n"
+            f"Got prompt tail: {prompt[-50:]}"
+        )
+
+    response = raw_response
+
+    # 情况 1：模型把 prompt 原样 echo 了
     if response.startswith(prompt):
         response = response[len(prompt):]
-    return extract_last_answer(response)
+
+    response = response.strip()
+
+    return prompt, response
 
 
-def clean_prompt(prompt: str) -> str:
-    return prompt.replace("\n\nAssistant:", "").strip()
-
-# ---------- main process ----------
+# =========================================================
+# Main
+# =========================================================
 
 def main(args):
     input_path = Path(args.input_file)
     output_path = Path(args.output_file)
 
-    # load reward model
+    # ---------- load reward model ----------
     tokenizer = AutoTokenizer.from_pretrained(args.rw_model)
     model = AutoModelForSequenceClassification.from_pretrained(
         args.rw_model,
@@ -42,20 +61,26 @@ def main(args):
     device = model.device
     print(f"[INFO] Loaded reward model on {device}")
 
-    # score the response
+    # ---------- scoring ----------
     with input_path.open(encoding="utf-8") as fin, \
          output_path.open("w", encoding="utf-8") as fout:
 
-        for line_idx, line in tqdm(enumerate(fin)):
+        for line_idx, line in tqdm(enumerate(fin), desc="Scoring"):
             item = json.loads(line)
 
             raw_prompt = item["prompt"]
             raw_response = item["response"]
 
-            prompt = clean_prompt(raw_prompt)
-            response = clean_answer(raw_prompt, raw_response)
+            try:
+                prompt, response = split_prompt_response(
+                    raw_prompt, raw_response
+                )
+            except Exception as e:
+                print(f"[WARN] Skip line {line_idx}: {e}")
+                continue
 
-            rm_input = f"Human: {prompt}\nAssistant: {response}"
+            # Reward model input = 完整对话 + 最后一轮 assistant
+            rm_input = prompt + response
 
             inputs = tokenizer(
                 rm_input,
@@ -73,33 +98,43 @@ def main(args):
                 "reward": reward
             }, ensure_ascii=False) + "\n")
 
+            # ---------- optional sanity check ----------
+            if args.debug and line_idx < 3:
+                print("\n================ RM INPUT ================")
+                print(rm_input)
+                print("=============== REWARD ==================")
+                print(reward)
+                print("=========================================\n")
 
     print(f"[DONE] Saved scored results to {output_path}")
 
 
-# ---------- argparse ----------
+# =========================================================
+# Argparse
+# =========================================================
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Score prompt-response pairs with a reward model"
+        description="Score multi-turn prompt-response pairs with a reward model"
     )
 
     parser.add_argument(
         "--input_file",
         type=str,
         required=True,
-        help="Path to input jsonl (with prompt & response)"
+        help="Path to input jsonl (must contain prompt & response)"
     )
     parser.add_argument(
         "--output_file",
         type=str,
         required=True,
-        help="Path to output jsonl (with prompt, response, reward)"
+        help="Path to output jsonl (prompt, response, reward)"
     )
     parser.add_argument(
         "--rw_model",
         type=str,
-        help="HuggingFace reward model name"
+        required=True,
+        help="HuggingFace reward model name or path"
     )
     parser.add_argument(
         "--max_length",
@@ -107,5 +142,11 @@ if __name__ == "__main__":
         default=1024,
         help="Max token length for reward model input"
     )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Print first few RM inputs for sanity check"
+    )
+
     args = parser.parse_args()
     main(args)
