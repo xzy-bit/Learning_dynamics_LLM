@@ -860,10 +860,9 @@ class BasicTrainer(object):
                 prob_gap2_mean,
                 prob_energy,
                 labels_argmax,
-                label_eq_argmax_avg_prob,
-                label_eq_argmax_rate,
-                argmax_prob_avg,
-                token_avg_prob,
+                token_avg_prob, 
+                label_eq_argmax_rate, 
+                argmax_prob_avg
             ),
         ) = _get_batch_logps(
             all_logits,
@@ -959,10 +958,9 @@ class BasicTrainer(object):
                  prob_gap2_mean,
                  prob_energy,
                  labels_argmax,
-                 label_eq_argmax_avg_prob,
-                 label_eq_argmax_rate,
-                 argmax_prob_avg,
                  token_avg_prob,
+                 label_eq_argmax_rate, 
+                 argmax_prob_avg
              ),
          ) = _get_batch_logps(
              all_logits,
@@ -1035,16 +1033,16 @@ class BasicTrainer(object):
                         temperature = loss_config.temperature
                         policy_chosen_score, policy_rejected_score, policy_chosen_logps, policy_rejected_logps, policy_chosen_support, policy_rejected_support,label_eq_argmax_rate,argmax_prob_avg,token_avg_prob = self.concatenated_forward_ent(self.policy, batch,alpha,beta,using_ns,temperature)
                         with torch.no_grad():
-                            reference_chosen_score, reference_rejected_score,_,_, reference_chosen_support, reference_rejected_support,_,_,_ = self.concatenated_forward_ent(
+                            reference_chosen_score, reference_rejected_score,reference_chosen_logps, reference_rejected_logps, reference_chosen_support, reference_rejected_support,_,_,_ = self.concatenated_forward_ent(
                                 self.reference_model, batch,alpha,beta,using_ns,temperature)
                         policy_chosen_support = all_gather_if_needed(policy_chosen_support, self.rank, self.world_size)
                         policy_rejected_support = all_gather_if_needed(policy_chosen_support, self.rank, self.world_size)
                         reference_chosen_support = all_gather_if_needed(reference_chosen_support, self.rank, self.world_size)
                         reference_rejected_support = all_gather_if_needed(reference_rejected_support, self.rank, self.world_size)
-                        metrics[f'entmax_{train_test}/policy_chosen_support'] = policy_chosen_support.cpu().numpy().tolist()
-                        metrics[f'entmax_{train_test}/policy_rejected_support'] = policy_rejected_support.cpu().numpy().tolist()
-                        metrics[f'entmax_{train_test}/ref_chosen_support'] = reference_chosen_support.cpu().numpy().tolist()
-                        metrics[f'entmax_{train_test}/ref_rejected_support'] = reference_rejected_support.cpu().numpy().tolist()
+                        metrics[f'entmax_{train_test}/policy_chosen_support'] = [policy_chosen_support.item()]
+                        metrics[f'entmax_{train_test}/policy_rejected_support'] = [policy_rejected_support.item()]
+                        metrics[f'entmax_{train_test}/ref_chosen_support'] = [reference_chosen_support.item()]
+                        metrics[f'entmax_{train_test}/ref_rejected_support'] = [reference_rejected_support.item()]
 
                 # Calculate the loss
                 if loss_config.name in {'dpo', 'masked_dpo','sp_dpo','ent_dpo','asym_dpo'}:
@@ -1067,9 +1065,6 @@ class BasicTrainer(object):
 
                 if self.config.using_extra_ce==True:
                     print("===============Adding DPO loss====================")
-                    with torch.no_grad():
-                        _,_, reference_chosen_logps, reference_rejected_logps  = self.concatenated_forward_ent(
-                            self.reference_model, batch, alpha, beta, using_ns, temperature)
                     dpo_losses, _,_,_ = preference_loss(
                         policy_chosen_logps, policy_rejected_logps, reference_chosen_logps, reference_rejected_logps,
                         **loss_kwargs)
@@ -1082,9 +1077,10 @@ class BasicTrainer(object):
                 rejected_rewards = all_gather_if_needed(rejected_rewards, self.rank, self.world_size)
                 reward_accuracies = all_gather_if_needed(reward_accuracies, self.rank, self.world_size)
 
-                metrics[f'confidence_{train_test}/label_eq_argmax_rate'] = label_eq_argmax_rate.item()
-                metrics[f'confidence_{train_test}/argmax_prob_avg'] = argmax_prob_avg.item()
-                metrics[f'confidence_{train_test}/token_avg_prob'] = token_avg_prob.item()
+                metrics[f'confidence_{train_test}/label_eq_argmax_rate'] = [label_eq_argmax_rate.item()]
+                metrics[f'confidence_{train_test}/argmax_prob_avg'] = [argmax_prob_avg.item()]
+                metrics[f'confidence_{train_test}/token_avg_prob'] = [token_avg_prob.item()]
+
 
                 metrics[f'rewards_{train_test}/chosen'] = chosen_rewards.cpu().numpy().tolist()
                 metrics[f'rewards_{train_test}/rejected'] = rejected_rewards.cpu().numpy().tolist()
