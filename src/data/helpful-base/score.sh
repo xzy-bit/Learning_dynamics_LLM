@@ -1,7 +1,7 @@
-export CUDA_VISIBLE_DEVICES=1
+export CUDA_VISIBLE_DEVICES=3
 
-INPUT_NAME="train_dpo.jsonl"
-OUTPUT_NAME="train_dpo_reward.jsonl"
+INPUT_FILE="train_dpo.jsonl"
+OUTPUT_FILE="train_dpo_reward.jsonl"
 RW_MODEL="Skywork/Skywork-Reward-V2-Llama-3.1-8B"
 
 python score_response.py \
