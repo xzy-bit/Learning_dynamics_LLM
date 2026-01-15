@@ -1,4 +1,4 @@
-export CUDA_VISIBLE_DEVICES=1
+export CUDA_VISIBLE_DEVICES=3
 export CUDA_LAUNCH_BLOCKING=1
 #MODEL="pythia410m"
 MODEL="llama3_1"
@@ -14,7 +14,7 @@ USING_NS=true
 
 ALPHA=1.5
 BETA=0.25
-TEMPS=(0.8 0.9)
+TEMPS=(1.0)
 LAMBDA=0.1
 
 for TEMP in "${TEMPS[@]}"; do
@@ -45,4 +45,4 @@ for TEMP in "${TEMPS[@]}"; do
         model.archive="dpo_entmax_${ALPHA}_beta_${BETA}_T_${TEMP}_usingNs_${USING_NS}_${MODEL}_${DATASET}_ep${N_EPOCHS}_${DATE}"\
         exp_name="eval_dpo_entmax_${ALPHA}_beta_${BETA}_T_${TEMP}_usingNs_${USING_NS}_${MODEL}_${DATASET}_ep${N_EPOCHS}_${DATE}"
 done
-score.sh
+bash score.sh
