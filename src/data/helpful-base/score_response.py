@@ -69,42 +69,51 @@ def main(args):
             item = json.loads(line)
 
             raw_prompt = item["prompt"]
-            raw_response = item["response"]
-
+            raw_response_chosen = item["chosen"]
+            raw_response_rejected = item["rejected"]
             try:
-                prompt, response = split_prompt_response(
-                    raw_prompt, raw_response
+                prompt, response_chosen = split_prompt_response(
+                    raw_prompt, raw_response_chosen
+                )
+                prompt, response_rejected = split_prompt_response(
+                    raw_prompt, raw_response_rejected
                 )
             except Exception as e:
                 print(f"[WARN] Skip line {line_idx}: {e}")
                 continue
 
             # Reward model input = 完整对话 + 最后一轮 assistant
-            rm_input = prompt + response
+            rm_input_chosen = prompt + response_chosen
 
-            inputs = tokenizer(
-                rm_input,
+            inputs_chosen = tokenizer(
+                rm_input_chosen,
                 return_tensors="pt",
                 truncation=True,
                 max_length=args.max_length
             ).to(device)
 
             with torch.no_grad():
-                reward = model(**inputs).logits.squeeze().item()
+                reward_chosen = model(**inputs_chosen).logits.squeeze().item()
+            
+            rm_input_rejected = prompt + response_rejected
+            
+            inputs_rejected = tokenizer(
+                rm_input_rejected,
+                return_tensors="pt",
+                truncation=True,
+                max_length=args.max_length
+            ).to(device)
+            
+            with torch.no_grad():
+                reward_rejected = model(**inputs_rejected).logits.squeeze().item()
 
             fout.write(json.dumps({
                 "prompt": prompt,
-                "response": response,
-                "reward": reward
+                "chosen": response_chosen,
+                "rejected": response_rejected,
+                "chosen_reward": reward_chosen,
+                "rejected_reward": reward_rejected
             }, ensure_ascii=False) + "\n")
-
-            # ---------- optional sanity check ----------
-            if args.debug and line_idx < 3:
-                print("\n================ RM INPUT ================")
-                print(rm_input)
-                print("=============== REWARD ==================")
-                print(reward)
-                print("=========================================\n")
 
     print(f"[DONE] Saved scored results to {output_path}")
 

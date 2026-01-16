@@ -7,8 +7,8 @@ MODEL="llama3_1"
 DATASET="hh"
 #DATASET="ultrafb"
 TRAIN_SPLIT="train_sft_rejected_only"
-SFT_EPOCHS=2
-N_EXAMPLES=10000
+SFT_EPOCHS=1
+N_EXAMPLES=5000
 EVAL_EVERY=20000
 DATE="0116"
 
@@ -35,7 +35,7 @@ python -u train.py \
     loss.beta=0.1\
     datasets=$DATASET \
     model=$MODEL \
-    exp_name="dpo_rejected_${MODEL}_${DATASET}_ep${N_EPOCHS}_${DATE}"\
+    exp_name="dpo_rejected_sft_${SFT_EPOCHS}_${MODEL}_${DATASET}_ep${N_EPOCHS}_${DATE}"\
     trainer=BasicTrainer \
     n_epochs=$N_EPOCHS \
     n_examples=$N_EXAMPLES \
@@ -45,5 +45,5 @@ python -u train.py \
 
 python -u gen_multipt.py \
    model=${MODEL} \
-   model.archive="dpo_rejected_${MODEL}_${DATASET}_ep${N_EPOCHS}_${DATE}"\
-   exp_name="eval_dpo_rejected_${MODEL}_${DATASET}_ep${N_EPOCHS}_${DATE}"
+   model.archive="dpo_rejected_sft_${SFT_EPOCHS}_${MODEL}_${DATASET}_ep${N_EPOCHS}_${DATE}"\
+   exp_name="eval_dpo_rejected_sft_${SFT_EPOCHS}_${MODEL}_${DATASET}_ep${N_EPOCHS}_${DATE}"
