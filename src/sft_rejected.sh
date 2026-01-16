@@ -13,20 +13,19 @@ EVAL_EVERY=20000
 DATE="0116"
 
 
-python -u train.py \
-  model=$MODEL \
-  datasets=$DATASET \
-  exp_name="sft_rejected_${MODEL}_${DATASET}_ep${SFT_EPOCHS}_${DATE}" \
-  trainer=BasicTrainer \
-  train_split=$TRAIN_SPLIT \
-  n_epochs=$SFT_EPOCHS \
-  n_examples=$N_EXAMPLES \
-  save_ckp="true" \
-  eval_every=$EVAL_EVERY
+#python -u train.py \
+#  model=$MODEL \
+#  datasets=$DATASET \
+#  exp_name="sft_rejected_${MODEL}_${DATASET}_ep${SFT_EPOCHS}_${DATE}" \
+#  trainer=BasicTrainer \
+#  train_split=$TRAIN_SPLIT \
+#  n_epochs=$SFT_EPOCHS \
+#  n_examples=$N_EXAMPLES \
+#  save_ckp="true" \
+#  eval_every=$EVAL_EVERY
 
 
 export CUDA_LAUNCH_BLOCKING=1
-SFT_EPOCHS=2
 N_EPOCHS=10
 N_EXAMPLES=50000
 EVAL_EVERY=50000
