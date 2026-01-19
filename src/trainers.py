@@ -1354,7 +1354,7 @@ class BasicTrainer(object):
                 #    argmax_npy_all.extend(argmax_npy)
                 # self.evaluation(prob_set='prob_test')
             #### END EVALUATION ####
-            epoch = self.example_counter // 5000
+            epoch = self.example_counter // 250
             if epoch == saving_epoch and epoch!=10:
                 output_dir = os.path.join(self.config.save_path)
                 self.save_pt(epoch,output_dir)
