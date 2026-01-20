@@ -146,6 +146,12 @@ def main(config: DictConfig):
             os.makedirs(config.save_path, exist_ok=True)
             print(f"Saving inference outputs to {config.save_path}")
             worker_main(0, 1, config, policy, reference_model)
+    else:
+        print("Using base pretrained model only (no checkpoint loaded)")
+        policy.eval()
+        config.save_path = os.path.join(gen_root, "pretrained")
+        os.makedirs(config.save_path, exist_ok=True)
+        worker_main(0, 1, config, policy, reference_model)
     # if 'FSDP' in config.trainer:
     #    world_size = torch.cuda.device_count()
     #    print('starting', world_size, 'processes for FSDP training')
