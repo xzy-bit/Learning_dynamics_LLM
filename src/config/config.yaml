@@ -76,7 +76,7 @@ n_epochs: 1
 
 # the number of examples to train for; if null, must specify n_epochs
 n_examples: 5000
-
+dataset_size: 5000
 # the number of examples to evaluate on (and sample from, if sample_during_eval is true)
 n_eval_examples: 10
 

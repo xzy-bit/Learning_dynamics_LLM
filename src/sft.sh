@@ -15,6 +15,7 @@ python -u train.py \
   model=$MODEL \
   exp_name="sft_ches_ratio_0_4_${MODEL}_${DATASET}_ep${SFT_EPOCHS}_${DATE}" \
   datasets=$DATASET \
+  dataset_size=5000 \
   trainer="BasicTrainer" \
   train_split="train_ches_0_4" \
   n_epochs=$SFT_EPOCHS \
@@ -31,6 +32,7 @@ python -u train.py \
     loss=dpo \
     loss.beta=0.1 \
     datasets=$DATASET \
+    dataset_size=5000 \
     model=$MODEL \
     exp_name="dpo_ches_ratio_0_4_${MODEL}_${DATASET}_ep${N_EPOCHS}_${DATE}"\
     trainer=BasicTrainer \

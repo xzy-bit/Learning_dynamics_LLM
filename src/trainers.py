@@ -411,19 +411,19 @@ def _get_batch_ent_score(
     # reshape back to [B, M-1]
     token_loss = flat_loss.view(B, M - 1)
 
-    entmax_probs = torch.zeros((B, M))
-    # ===== entmax probs =====
-    if alpha == 1.5:
-        entmax_probs = entmax15(flat_logits, dim=-1)
-    else:
-        entmax_probs = entmax_bisect(flat_logits, alpha, dim=-1, n_iter=50)
-
-    # ===== support size per token =====
-    eps = 1e-8
-    support_size = (entmax_probs > eps).sum(dim=-1)  # [B*(M-1)]
-    support_size = support_size.view(B, M - 1)  # [B, M-1]
-
-    token_avg_support = support_size[mask].float().mean()
+    # entmax_probs = torch.zeros((B, M))
+    # # ===== entmax probs =====
+    # if alpha == 1.5:
+    #     entmax_probs = entmax15(flat_logits, dim=-1)
+    # else:
+    #     entmax_probs = entmax_bisect(flat_logits, alpha, dim=-1, n_iter=50)
+    #
+    # # ===== support size per token =====
+    # eps = 1e-8
+    # support_size = (entmax_probs > eps).sum(dim=-1)  # [B*(M-1)]
+    # support_size = support_size.view(B, M - 1)  # [B, M-1]
+    #
+    # token_avg_support = support_size[mask].float().mean()
 
     if ispos and using_ns:
         softmax_probs = F.softmax(flat_logits, dim=-1)
@@ -446,7 +446,7 @@ def _get_batch_ent_score(
     # sum over valid tokens
     # out_token  = (per_token_logps * loss_mask).sum(-1)  #[B, 1]
     scores = -token_loss.sum(-1)
-    return scores,token_avg_support
+    return scores
 
 
 def _get_batch_logps_masked(
@@ -1354,11 +1354,11 @@ class BasicTrainer(object):
                 #    argmax_npy_all.extend(argmax_npy)
                 # self.evaluation(prob_set='prob_test')
             #### END EVALUATION ####
-            epoch = self.example_counter // 250
-            if epoch == saving_epoch and epoch!=10:
+            epoch = self.example_counter // self.config.dataset_size
+            if epoch == saving_epoch and epoch!=6:
                 output_dir = os.path.join(self.config.save_path)
                 self.save_pt(epoch,output_dir)
-                saving_epoch+=2
+                saving_epoch+=1
 
                 # word_out = {
                 #     "epoch": epoch,
