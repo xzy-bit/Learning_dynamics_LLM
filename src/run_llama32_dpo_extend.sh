@@ -2,11 +2,11 @@
 set -e
 export CUDA_VISIBLE_DEVICES=1
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "${SCRIPT_DIR}/../src"
+#SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+#cd "${SCRIPT_DIR}/../src"
 
 # --- Configuration ---
-MODEL="llama32_1b"
+MODEL="llama3_1"
 SFT_CHECKPOINT="llama32_1b_sft_extend_ep2"
 EXP_NAME="llama32_1b_dpo_extend_ep6"
 
