@@ -1,20 +1,18 @@
 #!/bin/bash
-set -e
-export CUDA_VISIBLE_DEVICES=1
 
 #SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 #cd "${SCRIPT_DIR}/../src"
 
 # --- Configuration ---
 MODEL="llama3_1"
-SFT_CHECKPOINT="llama32_1b_sft_extend_ep2"
-EXP_NAME="llama32_1b_dpo_extend_ep6"
+SFT_CHECKPOINT="llama32_1b_sft_extend_filtered_ep2"
+EXP_NAME="llama32_1b_dpo_extend_filtered_ep6"
 
 N_EPOCHS=6
-N_EXAMPLES=30000
-DATASET_SIZE=5000
-BATCH_SIZE=32                 
-GRADIENT_ACCUMULATION_STEPS=4 
+N_EXAMPLES=19392
+DATASET_SIZE=3232
+BATCH_SIZE=4 
+GRADIENT_ACCUMULATION_STEPS=1
 
 EVAL_EVERY=1000
 LR="5e-7"
@@ -39,7 +37,7 @@ python -u train.py \
     dataset_size=$DATASET_SIZE \
     exp_name=${EXP_NAME} \
     trainer=BasicTrainer \
-    train_split=train_dpo \
+    train_split=filtered_dpo \
     n_epochs=${N_EPOCHS} \
     n_examples=${N_EXAMPLES} \
     batch_size=${BATCH_SIZE} \

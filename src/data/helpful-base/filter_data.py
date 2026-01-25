@@ -1,7 +1,7 @@
 import json
 
 input_file = "train_dpo_reward.jsonl"
-output_file = "filtered_dpo_reward.jsonl"
+output_file = "filtered_data.jsonl"
 
 min_gap = 10
 max_gap = 0.2
@@ -25,8 +25,8 @@ with open(input_file, "r", encoding="utf-8") as fin, \
             "prompt": data["prompt"],
             "chosen": data["chosen"],
             "rejected": data["rejected"],
-            "rejected_reward": rejected_reward,
-            "chosen_reward": chosen_reward,
+            #"rejected_reward": rejected_reward,
+            #"chosen_reward": chosen_reward,
         }
         fout.write(json.dumps(new_data, ensure_ascii=False) + "\n")
 

@@ -1,22 +1,21 @@
 #!/bin/bash
 set -e
-export CUDA_VISIBLE_DEVICES=0
 
 #SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 #cd "${SCRIPT_DIR}/../src"
 
 # --- Configuration ---
 MODEL="llama3_1"
-SFT_CHECKPOINT="llama32_1b_sft_base_ep2"
-EXP_NAME="llama32_1b_dpo_base_ep6"
+SFT_CHECKPOINT="llama32_1b_sft_filtered_ep2"
+EXP_NAME="llama32_1b_dpo_filtered_ep6"
 
 N_EPOCHS=6
-N_EXAMPLES=30000              # 5000 examples per epoch
-DATASET_SIZE=5000
+N_EXAMPLES=19392             # 5000 examples per epoch
+DATASET_SIZE=3232
 # === MEMORY SAFETY ===
 # DPO loads 2 models. We keep Global Batch 32, but slice it smaller (Micro 8).
-BATCH_SIZE=32                 
-GRADIENT_ACCUMULATION_STEPS=4 
+BATCH_SIZE=4 
+GRADIENT_ACCUMULATION_STEPS=1
 
 EVAL_EVERY=1000
 LR="5e-7"
@@ -41,7 +40,7 @@ python -u train.py \
     model.archive=${SFT_CHECKPOINT} \
     exp_name=${EXP_NAME} \
     trainer=BasicTrainer \
-    train_split=train_dpo \
+    train_split=filtered_dpo \
     n_epochs=${N_EPOCHS} \
     n_examples=${N_EXAMPLES} \
     batch_size=${BATCH_SIZE} \
