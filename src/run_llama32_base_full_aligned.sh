@@ -3,7 +3,7 @@ set -e
 export CUDA_VISIBLE_DEVICES=0
 
 MODEL="llama3_1"
-EXP_NAME="llama32_1b_sft_base_ep2"
+EXP_NAME="llama32_1b_sft_full_aligned_ep2"
 N_EPOCHS=2
 N_EXAMPLES=10000
 DATASET_SIZE=5000
@@ -16,7 +16,7 @@ python -u train.py \
     model=${MODEL} \
     exp_name=${EXP_NAME} \
     trainer=BasicTrainer \
-    train_split=train_dpo \
+    train_split=full_aligned \
     dataset_size=$DATASET_SIZE \
     n_epochs=${N_EPOCHS} \
     n_examples=${N_EXAMPLES} \
@@ -27,8 +27,8 @@ python -u train.py \
     save_ckp=true
 
 MODEL="llama3_1"
-SFT_CHECKPOINT="llama32_1b_sft_base_ep2"
-EXP_NAME="llama32_1b_dpo_base_ep6"
+SFT_CHECKPOINT="llama32_1b_sft_full_aligned_ep2"
+EXP_NAME="llama32_1b_dpo_full_aligned_ep6"
 
 N_EPOCHS=6
 N_EXAMPLES=30000           # 5000 examples per epoch
@@ -54,7 +54,7 @@ python -u train.py \
     model.archive=${SFT_CHECKPOINT} \
     exp_name=${EXP_NAME} \
     trainer=BasicTrainer \
-    train_split=train_dpo \
+    train_split=full_aligned \
     n_epochs=${N_EPOCHS} \
     n_examples=${N_EXAMPLES} \
     batch_size=${BATCH_SIZE} \
@@ -64,7 +64,7 @@ python -u train.py \
     save_ckp=true
 
 
-EXP_NAME="llama32_1b_dpo_base_ep6"
+EXP_NAME="llama32_1b_dpo_full_aligned_ep6"
 
 python -u gen_multipt.py \
         model=llama3_1\

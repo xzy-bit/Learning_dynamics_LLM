@@ -3,11 +3,11 @@ set -e
 export CUDA_VISIBLE_DEVICES=0
 
 MODEL="llama3_1"
-EXP_NAME="llama32_1b_sft_base_ep2"
+EXP_NAME="llama32_1b_sft_base_bsz2_ep2"
 N_EPOCHS=2
 N_EXAMPLES=10000
 DATASET_SIZE=5000
-BATCH_SIZE=4
+BATCH_SIZE=2
 GRADIENT_ACCUMULATION_STEPS=1
 EVAL_EVERY=500
 LR="5e-7"                     # Standard SFT LR
@@ -27,13 +27,13 @@ python -u train.py \
     save_ckp=true
 
 MODEL="llama3_1"
-SFT_CHECKPOINT="llama32_1b_sft_base_ep2"
-EXP_NAME="llama32_1b_dpo_base_ep6"
+SFT_CHECKPOINT="llama32_1b_sft_base_bsz2_ep2"
+EXP_NAME="llama32_1b_dpo_base_bsz2_ep6"
 
 N_EPOCHS=6
 N_EXAMPLES=30000           # 5000 examples per epoch
 DATASET_SIZE=5000
-BATCH_SIZE=4
+BATCH_SIZE=2
 GRADIENT_ACCUMULATION_STEPS=1
 
 EVAL_EVERY=1000
@@ -64,7 +64,7 @@ python -u train.py \
     save_ckp=true
 
 
-EXP_NAME="llama32_1b_dpo_base_ep6"
+EXP_NAME="llama32_1b_dpo_base_bsz2_ep6"
 
 python -u gen_multipt.py \
         model=llama3_1\
