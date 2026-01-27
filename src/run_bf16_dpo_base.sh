@@ -40,7 +40,7 @@ python -u train.py \
     model.archive=${SFT_CHECKPOINT} \
     exp_name=${EXP_NAME} \
     trainer=BasicTrainer \
-    train_split=filtered_dpo \
+    train_split=train_dpo \
     n_epochs=${N_EPOCHS} \
     n_examples=${N_EXAMPLES} \
     batch_size=${BATCH_SIZE} \

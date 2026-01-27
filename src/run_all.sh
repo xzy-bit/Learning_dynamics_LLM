@@ -1,2 +1,2 @@
-bash run_llama32_base.sh
-bash run_llama32_extend.sh
+bash run_bf16_base.sh
+bash run_bf16_extend.sh
