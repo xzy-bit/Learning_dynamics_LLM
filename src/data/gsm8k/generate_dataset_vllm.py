@@ -8,14 +8,16 @@ from tqdm import tqdm
 # Config
 # ======================
 MODEL_NAME = "meta-llama/Llama-3.2-1B-Instruct"   # 或 8B
-NUM_PROMPTS = 7000
 MAX_NEW_TOKENS = 256
 TEMPERATURE = 0.7
 TOP_P = 0.9
 OUT_FILE = "gsm8k_8b.jsonl"
 
-dataset = load_dataset("gsm8k", "main", split="train")
-dataset = dataset.select(range(NUM_PROMPTS))
+dataset = load_dataset(
+    "gsm8k",
+    "main",
+    split="train+test"
+)
 
 llm = LLM(
     model=MODEL_NAME,

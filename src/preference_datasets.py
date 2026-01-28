@@ -73,7 +73,10 @@ def get_dataset(
         print("==================Got the dataset%s"%split)
     elif name == 'ultrafb':
         data = get_hh(split, silent=silent, data_dir='./data/ultrafeedback')
-        print("==================Got the dataset%s"%split)        
+        print("==================Got the dataset%s"%split)
+    elif name == 'gsm8k':
+        data = get_hh(split, silent=silent, data_dir='./data/gsm8k')
+        print("==================Got the dataset%s" % split)
     else:
         raise ValueError(f"Unknown dataset '{name}'")
     # assert set(data[0].keys()) == \
