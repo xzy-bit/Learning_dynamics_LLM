@@ -1,7 +1,7 @@
 import json
 
 input_file = "train_dpo_reward.jsonl"
-output_file = "full_aligned.jsonl"
+output_file = "train_filtered_reward.jsonl"
 
 min_gap = 10
 max_gap = 0.2
@@ -19,11 +19,12 @@ with open(input_file, "r", encoding="utf-8") as fin, \
         # if chosen_reward - rejected_reward >max_gap:
         #     max_gap = max(chosen_reward-rejected_reward, max_gap)
         if chosen_reward - rejected_reward < 0:
-            new_data = {
-                "prompt": data["prompt"],
-                "chosen": data["rejected"],
-                "rejected": data["chosen"],
-            }
+            #new_data = {
+            #    "prompt": data["prompt"],
+            #    "chosen": data["rejected"],
+            #    "rejected": data["chosen"],
+            #}
+            continue
         else:
 
             new_data = {

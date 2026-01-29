@@ -14,10 +14,11 @@ with open(input_path, "r", encoding="utf-8") as fin, \
         # 原 chosen → SFT
         fout.write(json.dumps({
             "prompt": prompt,
-            "chosen": data["chosen"]
+            "chosen": data["chosen"],
+            "rejected":data["rejected"]
         }, ensure_ascii=False) + "\n")
 
-        # 原 rejected → 也当作 SFT
+        ## 原 rejected → 也当作 SFT
         #fout.write(json.dumps({
         #    "prompt": prompt,
         #    "chosen": data["rejected"]

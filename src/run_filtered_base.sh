@@ -1,12 +1,12 @@
 #!/bin/bash
 set -e
 export CUDA_VISIBLE_DEVICES=0
-
+<<sft
 MODEL="llama3_1"
-EXP_NAME="llama32_1b_sft_base_hh_ep2"
+EXP_NAME="llama32_1b_sft_base_filtered_ep2"
 N_EPOCHS=2
-N_EXAMPLES=10000
-DATASET_SIZE=5000
+N_EXAMPLES=6464
+DATASET_SIZE=3232
 BATCH_SIZE=4
 GRADIENT_ACCUMULATION_STEPS=1
 EVAL_EVERY=500
@@ -16,7 +16,7 @@ python -u train.py \
     model=${MODEL} \
     exp_name=${EXP_NAME} \
     trainer=BasicTrainer \
-    train_split=train_dpo \
+    train_split=filtered_dpo \
     dataset_size=$DATASET_SIZE \
     n_epochs=${N_EPOCHS} \
     n_examples=${N_EXAMPLES} \
@@ -25,14 +25,15 @@ python -u train.py \
     eval_every=${EVAL_EVERY} \
     lr=${LR} \
     save_ckp=true
+sft
 
 MODEL="llama3_1"
-SFT_CHECKPOINT="llama32_1b_sft_base_hh_ep2"
-EXP_NAME="llama32_1b_dpo_base_hh_ep6"
+SFT_CHECKPOINT="llama32_1b_sft_base_filtered_ep2"
+EXP_NAME="llama32_1b_dpo_base_filtered_ep6"
 
 N_EPOCHS=6
-N_EXAMPLES=30000           # 5000 examples per epoch
-DATASET_SIZE=5000
+N_EXAMPLES=19392          # 5000 examples per epoch
+DATASET_SIZE=3232
 BATCH_SIZE=4
 GRADIENT_ACCUMULATION_STEPS=1
 
@@ -54,7 +55,7 @@ python -u train.py \
     model.archive=${SFT_CHECKPOINT} \
     exp_name=${EXP_NAME} \
     trainer=BasicTrainer \
-    train_split=train_dpo \
+    train_split=filtered_dpo \
     n_epochs=${N_EPOCHS} \
     n_examples=${N_EXAMPLES} \
     batch_size=${BATCH_SIZE} \
@@ -64,7 +65,7 @@ python -u train.py \
     save_ckp=true
 
 
-EXP_NAME="llama32_1b_dpo_base_hh_ep6"
+EXP_NAME="llama32_1b_dpo_base_filtered_ep6"
 
 python -u gen_multipt.py \
         model=llama3_1\
