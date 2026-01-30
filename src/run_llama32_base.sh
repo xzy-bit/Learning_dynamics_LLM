@@ -2,6 +2,7 @@
 set -e
 export CUDA_VISIBLE_DEVICES=0
 
+<<sft
 MODEL="llama3_1"
 EXP_NAME="llama32_1b_sft_base_hh_ep2"
 N_EPOCHS=2
@@ -25,10 +26,10 @@ python -u train.py \
     eval_every=${EVAL_EVERY} \
     lr=${LR} \
     save_ckp=true
-
+sft
 MODEL="llama3_1"
 SFT_CHECKPOINT="llama32_1b_sft_base_hh_ep2"
-EXP_NAME="llama32_1b_dpo_base_hh_ep6"
+EXP_NAME="llama32_1b_dpo_aux_hh_ep6"
 
 N_EPOCHS=6
 N_EXAMPLES=30000           # 5000 examples per epoch
@@ -64,7 +65,7 @@ python -u train.py \
     save_ckp=true
 
 
-EXP_NAME="llama32_1b_dpo_base_hh_ep6"
+EXP_NAME="llama32_1b_dpo_aux_hh_ep6"
 
 python -u gen_multipt.py \
         model=llama3_1\

@@ -87,6 +87,26 @@ def preference_loss(policy_chosen_logps: torch.FloatTensor,
     sigma_m = torch.sigmoid(beta * logits).detach()
     return losses, chosen_rewards, rejected_rewards, sigma_m
 
+def aux_loss(logits, labels, sigma_m, beta: float, alpha: float=1.0):
+    """
+    logits: [B, M, V]  (chosen branch)
+    labels: [B, M]     (-100 masked)
+    margin: [B] or [B,1]
+    returns: scalar
+    """
+    B, M, V = logits.shape
+    loss_mask = (labels != -100)  # [B,M]
+    safe_labels = labels.masked_fill(~loss_mask, 0)
+    label_logits = torch.gather(logits, dim=-1, index=safe_labels.unsqueeze(-1)).squeeze(-1)  # [B,M]
+
+    denom = loss_mask.sum(dim=-1).clamp(min=1)  # [B]
+    per_sample = (label_logits * loss_mask).sum(dim=-1) / denom  # [B]
+
+    w = beta * (1.0 - sigma_m)
+
+    aux = -(w * per_sample)  # [B]
+    return alpha * aux.mean()
+
 def asymmetric_preference_loss(policy_chosen_logps: torch.FloatTensor,
                     policy_rejected_logps: torch.FloatTensor,
                     reference_chosen_logps: torch.FloatTensor,
@@ -871,7 +891,11 @@ class BasicTrainer(object):
         )
         chosen_logps = all_logps[:batch['chosen_input_ids'].shape[0]]
         rejected_logps = all_logps[batch['chosen_input_ids'].shape[0]:]
-        return chosen_logps, rejected_logps,label_eq_argmax_rate,argmax_prob_avg,token_avg_prob
+        
+        chosen_logits = all_logits[:batch['chosen_input_ids'].shape[0]]
+        chosen_labels = concatenated_batch['concatenated_labels'][:batch['chosen_input_ids'].shape[0]]
+
+        return chosen_logps, rejected_logps,label_eq_argmax_rate,argmax_prob_avg,token_avg_prob,chosen_logits,chosen_labels
 
     def concatenated_forward_masked(self, model: nn.Module, batch: Dict[str, Union[List, torch.LongTensor]],mask_type:str,mask_ratio:float,mask_top_k:int,mask_strength:float,mask_threshold_prob:float):
         concatenated_batch = concatenated_inputs(batch)
@@ -1013,10 +1037,10 @@ class BasicTrainer(object):
                             metrics["masked_dpo/rank_ratio"] = [zero_ratio["rank_ratio"]]
                             metrics["masked_dpo/rank"] = [zero_ratio["rank"]]
                     elif loss_config.name == 'dpo' or loss_config.name == 'ipo' or loss_config.name == 'asym_dpo':
-                        policy_chosen_score, policy_rejected_score,label_eq_argmax_rate,argmax_prob_avg,token_avg_prob = self.concatenated_forward(
+                        policy_chosen_score, policy_rejected_score,label_eq_argmax_rate,argmax_prob_avg,token_avg_prob,chosen_logits,chosen_labels = self.concatenated_forward(
                             self.policy, batch)
                     with torch.no_grad():
-                        reference_chosen_score, reference_rejected_score,_,_,_ = self.concatenated_forward(
+                        reference_chosen_score, reference_rejected_score,_,_,_,_,_ = self.concatenated_forward(
                             self.reference_model, batch)
                     policy_chosen_logps, policy_rejected_logps = policy_chosen_score, policy_rejected_score
 
@@ -1060,16 +1084,17 @@ class BasicTrainer(object):
                     losses, chosen_rewards, rejected_rewards,sigma_m = preference_loss(
                         policy_chosen_score, policy_rejected_score, reference_chosen_score, reference_rejected_score,
                         **loss_kwargs)
-
-
-
-                if self.config.using_extra_ce==True:
-                    print("===============Adding DPO loss====================")
-                    dpo_losses, _,_,_ = preference_loss(
-                        policy_chosen_logps, policy_rejected_logps, reference_chosen_logps, reference_rejected_logps,
-                        **loss_kwargs)
-
-                    losses = losses * self.config.ce_lambda + dpo_losses
+                    aux_losses = aux_loss(chosen_logits, chosen_labels, sigma_m, beta=0.1, alpha=1.0)
+                    losses = losses + aux_losses
+                    print(f"==== using aux loss {aux_losses.item()}")
+                
+                #if self.config.using_extra_ce==True:
+                #    print("===============Adding DPO loss====================")
+                #    dpo_losses, _,_,_ = preference_loss(
+                #        policy_chosen_logps, policy_rejected_logps, reference_chosen_logps, reference_rejected_logps,
+                #        **loss_kwargs)
+                #
+                #    losses = losses * self.config.ce_lambda + dpo_losses
 
                 reward_accuracies = (chosen_rewards > rejected_rewards).float()
 
